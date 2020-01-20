@@ -1031,7 +1031,8 @@ function membership_entity_member_select_process($element, &$form_state, $comple
   $multiple = ($element['#cardinality'] > 1 || $element['#cardinality'] == FIELD_CARDINALITY_UNLIMITED);
   $wrapper_id = drupal_html_id($element['#id'] . '-add-more-wrapper');
 
-  if (empty($form_state['items_count'][$element['#name']])) {
+  if ((is_array($element['#value']) || $element['#value'] instanceof Countable) && empty($form_state['items_count'][$element['#name']])) {
+    // The 'Countable' interface is available in PHP 5.1+
     $form_state['items_count'][$element['#name']] = count($element['#value']);
   }
 
