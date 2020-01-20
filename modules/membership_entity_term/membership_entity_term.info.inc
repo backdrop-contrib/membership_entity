@@ -70,6 +70,20 @@ class MembershipEntityTermMetadataController extends EntityDefaultMetadataContro
       'entity views field' => TRUE,
     );
 
+    $properties['created'] = array(
+      'type' => 'date',
+      'label' => t('Date created'),
+      'description' => t('The date the membership term was created.'),
+      'setter callback' => 'entity_property_verbatim_set',
+      'setter permission' => 'administer memberships',
+    ) + $properties['created'];
+
+    $properties['changed'] = array(
+      'type' => 'date',
+      'label' => t('Date changed'),
+      'description' => t('The date the membership term was most recently updated.'),
+    ) + $properties['changed'];
+
     return $info;
   }
 
