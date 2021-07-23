@@ -16,8 +16,8 @@ class MembershipEntityNumericMemberId extends MembershipEntityMemberIdAbstract {
   public function next(MembershipEntity $membership) {
     $settings = $this->settings;
     $length = !empty($settings['length']) ? $settings['length'] : 5;
-    $member_id = variable_get('membership_entity_next_member_id', 0);
-    variable_set('membership_entity_next_member_id', ++$member_id);
+    $member_id = state_get( 'membership_entity_next_member_id', 0);
+    state_set('membership_entity_next_member_id', ++$member_id);
     return str_pad($member_id, $length, '0', STR_PAD_LEFT);
   }
 

@@ -33,7 +33,7 @@ class MembershipEntityWebTestCase extends BackdropWebTestCase {
     $this->secondaryRole = $this->backdropCreateRole(array(), 'Secondary Member');
 
     // Add default membership settings.
-    variable_set('membership_entity_settings', array(
+    config_set('membership_entity.settings', 'membership_entity_settings', array(
       'member_id_format' => 'membership_entity_numeric_member_id',
       'member_id_settings' => array(
         'length' => 5,
@@ -137,9 +137,9 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
    */
   public function testSecondaryMembershipCreation() {
     // Update membership settings.
-    $settings = variable_get('membership_entity_settings', array());
+    $settings = config_get('membership_entity.settings', 'membership_entity_settings');
     $settings['cardinality'] = 3;
-    variable_set('membership_entity_settings', $settings);
+    config_set('membership_entity.settings', 'membership_entity_settings', $settings);
 
     // Create secondary member accounts.
     $secondary1 = $this->backdropCreateUser();
@@ -201,8 +201,8 @@ class MembershipEntityJoinTestCase extends MembershipEntityWebTestCase {
   protected function setup() {
     parent::setUp();
     // Do not require email verification or approval for new accounts.
-    variable_set('user_email_verification', FALSE);
-    variable_set('user_register', USER_REGISTER_VISITORS);
+    config_set('system.core', 'user_email_verification', FALSE);
+    config_set('system.core', 'user_register', USER_REGISTER_VISITORS);
 
     // Give anonymous users the join permission.
     $anonymous = user_role_load_by_name('anonymous user');
@@ -438,9 +438,9 @@ class MembershipEntityAccessTestCase extends MembershipEntityWebTestCase {
     $this->assertMembershipEntityAccess(array('view' => TRUE, 'edit' => FALSE), $membership4, $secondary_member);
 
     // Secondary member can edit own membership if allowed by settings.
-    $settings = variable_get('membership_entity_settings', array());
+    $settings = config_get('membership_entity.settings', 'membership_entity_settings');
     $settings['all_edit'] = TRUE;
-    variable_set('membership_entity_settings', $settings);
+    config_set('membership_entity.settings', 'membership_entity_settings', $settings);
     $this->assertMembershipEntityAccess(array('edit' => TRUE), $membership4, $secondary_member);
   }
 

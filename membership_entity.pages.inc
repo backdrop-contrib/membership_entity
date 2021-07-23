@@ -212,7 +212,7 @@ function membership_entity_settings_form_validate($form, &$form_state) {
 function membership_entity_settings_form_submit($form, &$form_state) {
   // Remove extra fields and save the values.
   form_state_values_clean($form_state);
-  variable_set('membership_entity_settings', $form_state['values']);
+  config_set('membership_entity.settings', 'membership_entity_settings', $form_state['values']);
   backdrop_set_message(t('The configuration options have been saved'));
 }
 
@@ -535,7 +535,7 @@ function membership_entity_user_join_register_validate($form, &$form_state) {
 function membership_entity_user_join_register_submit($form, &$form_state) {
   $values = &$form_state['values']['user'];
 
-  $pass = !variable_get('user_email_verification', TRUE) ? $pass = $values['pass'] : user_password();
+  $pass = !config_get('system.core', 'user_email_verification') ? $pass = $values['pass'] : user_password();
 
   // Remove unneeded values.
   form_state_values_clean($form_state);
@@ -567,7 +567,7 @@ function membership_entity_user_join_register_submit($form, &$form_state) {
 
   $account->password = $pass;
   // No e-mail verification required; log in user immediately.
-  if (!variable_get('user_email_verification', TRUE) && $account->status) {
+  if (!config_get('system.core', 'user_email_verification') && $account->status) {
     _user_mail_notify('register_no_approval_required', $account);
     $form_state['uid'] = $account->uid;
     user_login_submit(array(), $form_state);
@@ -759,7 +759,7 @@ function membership_entity_modal_user_register_form($form, &$form_state) {
 function membership_entity_modal_user_register_form_submit($form, &$form_state) {
   $admin = $form_state['values']['administer_users'];
 
-  if (!variable_get('user_email_verification', TRUE) || $admin) {
+  if (!config_get('system.core', 'user_email_verification') || $admin) {
     $pass = $form_state['values']['pass'];
   }
   else {
@@ -804,7 +804,7 @@ function membership_entity_modal_user_register_form_submit($form, &$form_state) 
       '%name' => $account->name,
     )));
   }
-  elseif (!$admin && !variable_get('user_email_verification', TRUE) && $account->status) {
+  elseif (!$admin && !config_get('system.core', 'user_email_verification') && $account->status) {
     _user_mail_notify('register_no_approval_required', $account);
     $form_state['uid'] = $account->uid;
     backdrop_set_message(t('Account created.'));

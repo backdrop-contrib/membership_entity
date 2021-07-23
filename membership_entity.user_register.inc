@@ -42,7 +42,7 @@ function membership_entity_user_account_form(&$form, &$form_state) {
 
   // Display password field only when user is allowed to assign a password
   // during registration.
-  if (!variable_get('user_email_verification', TRUE)) {
+  if (!config_get('system.core', 'user_email_verification')) {
     $form['user']['account']['pass'] = array(
       '#type' => 'password_confirm',
       '#size' => 25,
@@ -53,7 +53,7 @@ function membership_entity_user_account_form(&$form, &$form_state) {
 
   $form['user']['account']['status'] = array(
     '#type' => 'value',
-    '#value' => variable_get('user_register', USER_REGISTER_VISITORS_ADMINISTRATIVE_APPROVAL) == USER_REGISTER_VISITORS,
+    '#value' => config_get('system.core', 'user_register') == USER_REGISTER_VISITORS,
   );
 }
 

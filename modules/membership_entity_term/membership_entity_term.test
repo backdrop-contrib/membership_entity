@@ -27,7 +27,7 @@ class MembershipEntityTermWebTestCase extends MembershipEntityWebTestCase {
     parent::setUp($modules);
 
     // Add default membership term settings.
-    $settings = variable_get('membership_entity_settings', array());
+    $settings = config_get('membership_entity.settings', 'membership_entity_settings');
     $settings += array(
       'grace_period' => 'none',
       'custom_grace_period' => 'none',
@@ -39,7 +39,7 @@ class MembershipEntityTermWebTestCase extends MembershipEntityWebTestCase {
         2 => '3 years',
       ),
     );
-    variable_set('membership_entity_settings', $settings);
+    config_set('membership_entity.settings', 'membership_entity_settings', $settings);
   }
 
   /**
