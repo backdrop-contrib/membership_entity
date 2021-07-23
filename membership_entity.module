@@ -233,15 +233,7 @@ function membership_entity_membership_entity_access($op, $membership = NULL, $ac
       }
     }
   }
-}
-
-/**
- * Access callback for the modal register form.
- *
- * @see user_register_access()
- */
-function membership_entity_modal_register_access() {
-  return user_access('administer users') || config_get('system.core', 'user_register');
+  return FALSE;
 }
 
 /**
@@ -331,16 +323,6 @@ function membership_entity_menu() {
     'type' => MENU_LOCAL_TASK,
     'context' => MENU_CONTEXT_INLINE,
     'file' => 'membership_entity.pages.inc',
-  );
-
-  // Modal register form.
-  $items['membership_entity/%ctools_js/register/%'] = array(
-    'title' => 'Register',
-    'page callback' => 'membership_entity_modal_register',
-    'page arguments' => array(1, 3),
-    'access callback' => 'membership_entity_modal_register_access',
-    'file' => 'membership_entity.pages.inc',
-    'type' => MENU_CALLBACK,
   );
 
   // Add support for devel generate.
@@ -905,29 +887,6 @@ function membership_entity_next_member_id(MembershipEntity $membership) {
     ->next($membership);
 }
 
-/**
- * Implements hook_ctools_plugin_type().
- */
-//function membership_entity_ctools_plugin_type() {
-//  return array(
-//    'member_id' => array(
-//      'cache' => TRUE,
-//      'use hooks' => TRUE,
-//      'hook' => 'membership_entity_member_id_info',
-//      'classes' => array('class'),
-//      'process' => 'membership_entity_member_id_plugin_process',
-//    ),
-//  );
-//}
-
-/**
- * CTools plugin process callback.
- */
-function membership_entity_member_id_plugin_process(&$plugin, $info) {
-  $plugin += array(
-    'description' => '',
-  );
-}
 
 /**
  * Get metadata for member id plugins.
@@ -936,8 +895,6 @@ function membership_entity_member_id_plugin_process(&$plugin, $info) {
  *   (optional) Return metadata on a specific member_id plugin.
  */
 function membership_entity_get_member_id($id = NULL) {
-  //ctools_include('plugins');
-  //return ctools_get_plugins('membership_entity', 'member_id', $id);
   $plugins = module_invoke_all('membership_entity_member_id_info');
   if ($id) {
     return $plugins[$id] ?? [];
@@ -1067,10 +1024,6 @@ function form_type_membership_entity_member_select_value($element, $input, &$for
  * Process callback for the member select element.
  */
 function membership_entity_member_select_process($element, &$form_state, $complete_form) {
-  // Include the CTools tools and javascript that we need.
-  //ctools_include('ajax');
-  //ctools_include('modal');
-  //ctools_modal_add_js();
 
   $multiple = ($element['#cardinality'] > 1 || $element['#cardinality'] == FIELD_CARDINALITY_UNLIMITED);
   $wrapper_id = backdrop_html_id($element['#id'] . '-add-more-wrapper');
@@ -1122,11 +1075,6 @@ function membership_entity_member_select_process($element, &$form_state, $comple
       '#required' => $delta == 0 && $element['#required'],
       '#id' => $id,
     );
-
-    // Add the "Create a new account" button.
-    if (!$element['#disabled'] && membership_entity_modal_register_access()) {
-      $item['value']['#field_suffix'] = ' or ' . ctools_modal_text_button(t('Create a new account'), 'membership_entity/nojs/register/' . $id, t('Create a new account.'), 'button');
-    }
 
     if ($element['#cardinality'] > 1 || $element['#cardinality'] == FIELD_CARDINALITY_UNLIMITED) {
       // We name the element '_weight' to avoid clashing with elements

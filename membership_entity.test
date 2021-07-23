@@ -22,8 +22,8 @@ class MembershipEntityWebTestCase extends BackdropWebTestCase {
     }
     $modules += array(
       'membership_entity',
-      'entity',
-      'ctools',
+      'entity_plus',
+      'entity_ui',
       'views',
     );
     parent::setUp($modules);
