@@ -1,0 +1,241 @@
+{
+    "_config_name": "views.view.membership_entity_memberships",
+    "name": "membership_entity_memberships",
+    "description": "Display a list of all memberships on the site.",
+    "tag": "membership_entity",
+    "disabled": false,
+    "base_table": "membership_entity",
+    "human_name": "Administration: Memberships",
+    "core": 0,
+    "display": {
+        "default": {
+            "display_title": "Master",
+            "display_plugin": "default",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "title": "Memberships",
+                "use_more_always": false,
+                "access": {
+                    "type": "perm",
+                    "perm": "administer memberships"
+                },
+                "cache": {
+                    "type": "none"
+                },
+                "exposed_form": {
+                    "type": "basic"
+                },
+                "pager": {
+                    "type": "full",
+                    "options": {
+                        "items_per_page": "100"
+                    }
+                },
+                "style_plugin": "table",
+                "style_options": {
+                    "columns": {
+                        "member_id": "member_id",
+                        "primary_member": "primary_member",
+                        "status": "status",
+                        "created": "created",
+                        "url": "url",
+                        "edit": "url",
+                        "delete": "url"
+                    },
+                    "empty_table": true,
+                    "info": {
+                        "member_id": {
+                            "sortable": 1,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "primary_member": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "status": {
+                            "sortable": 1,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "created": {
+                            "sortable": 1,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "url": {
+                            "align": "",
+                            "separator": " | ",
+                            "empty_column": 0
+                        },
+                        "edit": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "delete": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        }
+                    },
+                    "default": "created"
+                },
+                "empty": {
+                    "area": {
+                        "id": "area",
+                        "table": "views",
+                        "field": "area",
+                        "empty": true,
+                        "content": "There are no memberships to display.",
+                        "format": "filtered_html"
+                    }
+                },
+                "fields": {
+                    "mid": {
+                        "id": "mid",
+                        "table": "membership_entity",
+                        "field": "mid",
+                        "label": "",
+                        "exclude": true,
+                        "element_label_colon": false,
+                        "separator": ""
+                    },
+                    "member_id": {
+                        "id": "member_id",
+                        "table": "membership_entity",
+                        "field": "member_id",
+                        "alter": {
+                            "make_link": true,
+                            "path": "membership/[mid]",
+                            "alt": "View membership [member_id]"
+                        }
+                    },
+                    "primary_member": {
+                        "id": "primary_member",
+                        "table": "membership_entity",
+                        "field": "primary_member",
+                        "link_to_entity": 1,
+                        "view_mode": "full",
+                        "bypass_access": 1
+                    },
+                    "status": {
+                        "id": "status",
+                        "table": "membership_entity",
+                        "field": "status",
+                        "label": "Status"
+                    },
+                    "created": {
+                        "id": "created",
+                        "table": "membership_entity",
+                        "field": "created",
+                        "label": "Created",
+                        "date_format": "short"
+                    },
+                    "url": {
+                        "id": "url",
+                        "table": "membership_entity",
+                        "field": "url",
+                        "label": "Operations"
+                    },
+                    "edit": {
+                        "id": "edit",
+                        "table": "membership_entity",
+                        "field": "edit"
+                    },
+                    "delete": {
+                        "id": "delete",
+                        "table": "membership_entity",
+                        "field": "delete"
+                    }
+                },
+                "sorts": {
+                    "member_id": {
+                        "id": "member_id",
+                        "table": "membership_entity",
+                        "field": "member_id"
+                    }
+                },
+                "filters": {
+                    "member_id": {
+                        "id": "member_id",
+                        "table": "membership_entity",
+                        "field": "member_id",
+                        "operator": "contains",
+                        "exposed": true,
+                        "expose": {
+                            "operator_id": "member_id_op",
+                            "label": "Member ID",
+                            "operator": "member_id_op",
+                            "identifier": "member_id",
+                            "remember_roles": {
+                                "2": "2",
+                                "1": 0,
+                                "3": 0,
+                                "4": 0,
+                                "5": 0
+                            }
+                        }
+                    },
+                    "status": {
+                        "id": "status",
+                        "table": "membership_entity",
+                        "field": "status",
+                        "exposed": true,
+                        "expose": {
+                            "operator_id": "status_op",
+                            "label": "Status",
+                            "operator": "status_op",
+                            "identifier": "status",
+                            "multiple": true,
+                            "remember_roles": {
+                                "2": "2",
+                                "1": 0,
+                                "3": 0,
+                                "4": 0,
+                                "5": 0
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "admin": {
+            "display_title": "Admin Page",
+            "display_plugin": "page",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "display_description": "A list of membership for administrators.",
+                "path": "admin/memberships/list",
+                "menu": {
+                    "type": "default tab",
+                    "title": "List",
+                    "description": "A list of all memberships",
+                    "weight": "0",
+                    "name": "management",
+                    "context": 0,
+                    "context_only_inline": 0
+                },
+                "tab_options": {
+                    "type": "normal",
+                    "title": "Memberships",
+                    "weight": "0",
+                    "name": "management"
+                }
+            }
+        }
+    }
+}

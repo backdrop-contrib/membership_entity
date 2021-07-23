@@ -90,6 +90,60 @@ class MembershipEntityTerm extends Entity {
   }
 
   /**
+   * Returns the entity identifier (the entity's machine name or numeric ID).
+   *
+   * @return
+   *   The identifier of the entity, or NULL if the entity does not yet have
+   *   an identifier.
+   */
+  public function id() {
+    return $this->id;
+  }
+
+  /**
+   * Returns the type of the entity.
+   *
+   * @return
+   *   The type of the entity.
+   */
+  public function entityType() {
+    return 'membership_entity_term';
+  }
+
+  /**
+   * Returns the bundle of the entity.
+   *
+   * @return
+   *   The bundle of the entity. Defaults to the entity type if the entity type
+   *   does not make use of different bundles.
+   */
+  public function bundle() {
+    return $this->entityType();
+  }
+
+  /**
+   * Returns the label of the entity.
+   *
+   * @return
+   *   The label of the entity, or NULL if there is no label defined.
+   */
+  public function label() {
+    return $this->label;
+  }
+
+  /**
+   * Returns the URI elements of the entity.
+   *
+   * @return
+   *   An array containing the 'path' and 'options' keys used to build the URI
+   *   of the entity, and matching the signature of url(). NULL if the entity
+   *   has no URI of its own.
+   */
+  public function uri() {
+
+  }
+
+  /**
    * Returns the full url to the membership term.
    */
   public function url() {
@@ -138,7 +192,7 @@ class MembershipEntityTerm extends Entity {
    */
   protected function calculateEndDate() {
     // Add the term length.
-    $end = new DateObject($this->start, new DateTimezone($this->timezone));
+    $end = new BackdropDateTime($this->start, new DateTimezone($this->timezone));
     $end = _membership_entity_term_modify_date($end, $this->term);
 
     // Add modifiers.

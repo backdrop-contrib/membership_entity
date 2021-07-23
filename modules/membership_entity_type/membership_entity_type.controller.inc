@@ -8,7 +8,7 @@
 /**
  * Entity controller class for membership types.
  */
-class MembershipEntityTypeController extends EntityAPIControllerExportable {
+class MembershipEntityTypeController extends EntityPlusControllerExportable {
 
   /**
    * {@inheritdoc}

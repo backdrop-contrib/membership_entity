@@ -13,6 +13,9 @@ define('MEMBERSHIP_ENTITY_ACTIVE', 1);
 define('MEMBERSHIP_ENTITY_CANCELLED', 2);
 define('MEMBERSHIP_ENTITY_PENDING', 3);
 
+// Includes
+require_once dirname(__FILE__) . '/membership_entity.ctools.inc';
+
 /**
  * Retrieve a list of membership status options.
  */
@@ -22,6 +25,30 @@ function membership_entity_get_status_list() {
     MEMBERSHIP_ENTITY_ACTIVE => t('Active'),
     MEMBERSHIP_ENTITY_CANCELLED => t('Cancelled'),
     MEMBERSHIP_ENTITY_PENDING => t('Pending'),
+  );
+}
+
+/**
+ * implements hook_autoload_info().
+ *
+ * Return an array of files containing classes keyed by class name.
+ */
+function membership_entity_autoload_info() {
+  return array(
+    'MembershipEntity' => 'membership_entity.inc',
+    'MembershipEntityController' => 'membership_entity.controller.inc',
+    'MembershipEntityMetadataController' => 'membership_entity.info.inc',
+    'MembershipEntityMemberIdInterface' => 'plugins/member_id/MembershipEntityMemberIdInterface.php',
+    'MembershipEntityMemberIdAbstract' => 'plugins/member_id/MembershipEntityMemberIdAbstract.php',
+    'MembershipEntityMemberIdBroken' => 'plugins/member_id/MembershipEntityMemberIdBroken.php',
+    'MembershipEntityNumericMemberId' => 'plugins/member_id/MembershipEntityNumericMemberId.class.php',
+    'MembershipEntityTokenMemberId' => 'plugins/member_id/MembershipEntityTokenMemberId.class.php',
+    'MembershipEntityViewsController' => 'views/membership_entity.views.inc',
+    'EntityDefaultViewsController' => 'views/membership_entity.views.inc',
+    'views_handler_field_membership_primary_member' => 'views/views_handler_field_membership_primary_member.inc',
+    'views_handler_field_membership_secondary_member' => 'views/views_handler_field_membership_secondary_member.inc',
+    'views_handler_field_membership_link' => 'views/views_handler_field_membership_link.inc',
+    //'MigrateDestinationMembershipEntity' => 'membership_entity.migrate.inc',
   );
 }
 
@@ -469,7 +496,7 @@ function membership_entity_user_view($account, $view_mode, $langcode) {
  */
 function membership_entity_view($membership, $view_mode = 'full', $langcode = NULL) {
   if (!isset($langcode)) {
-    $langcode = $GLOBALS['language']->language;
+    $langcode = $GLOBALS['language']->langcode;
   }
 
   $entity_type = 'membership_entity';
@@ -758,7 +785,7 @@ function _membership_entity_form_field_validate($entity_type, $form, &$form_stat
  */
 function _membership_entity_form_submit_build_entity($entity_type, $entity, $form, &$form_state) {
   $info = entity_get_info($entity_type);
-  list(, , $bundle) = entity_extract_ids($entity_type, $entity);
+  [, , $bundle] = entity_extract_ids($entity_type, $entity);
 
   $path = array_merge($form['#parents']);
   $key_exists = NULL;
@@ -870,17 +897,17 @@ function membership_entity_next_member_id(MembershipEntity $membership) {
 /**
  * Implements hook_ctools_plugin_type().
  */
-function membership_entity_ctools_plugin_type() {
-  return array(
-    'member_id' => array(
-      'cache' => TRUE,
-      'use hooks' => TRUE,
-      'hook' => 'membership_entity_member_id_info',
-      'classes' => array('class'),
-      'process' => 'membership_entity_member_id_plugin_process',
-    ),
-  );
-}
+//function membership_entity_ctools_plugin_type() {
+//  return array(
+//    'member_id' => array(
+//      'cache' => TRUE,
+//      'use hooks' => TRUE,
+//      'hook' => 'membership_entity_member_id_info',
+//      'classes' => array('class'),
+//      'process' => 'membership_entity_member_id_plugin_process',
+//    ),
+//  );
+//}
 
 /**
  * CTools plugin process callback.
@@ -898,9 +925,15 @@ function membership_entity_member_id_plugin_process(&$plugin, $info) {
  *   (optional) Return metadata on a specific member_id plugin.
  */
 function membership_entity_get_member_id($id = NULL) {
-  ctools_include('plugins');
-  return ctools_get_plugins('membership_entity', 'member_id', $id);
+  //ctools_include('plugins');
+  //return ctools_get_plugins('membership_entity', 'member_id', $id);
+  $plugins = module_invoke_all('membership_entity_member_id_info');
+  if ($id) {
+    return $plugins[$id] ?? [];
+  }
+  return $plugins;
 }
+
 
 /**
  * Helper to retrieve a member id plugin instance.
@@ -1024,9 +1057,9 @@ function form_type_membership_entity_member_select_value($element, $input, &$for
  */
 function membership_entity_member_select_process($element, &$form_state, $complete_form) {
   // Include the CTools tools and javascript that we need.
-  ctools_include('ajax');
-  ctools_include('modal');
-  ctools_modal_add_js();
+  //ctools_include('ajax');
+  //ctools_include('modal');
+  //ctools_modal_add_js();
 
   $multiple = ($element['#cardinality'] > 1 || $element['#cardinality'] == FIELD_CARDINALITY_UNLIMITED);
   $wrapper_id = drupal_html_id($element['#id'] . '-add-more-wrapper');
@@ -1327,8 +1360,8 @@ function membership_entity_membership_entity_presave($membership) {
  * @param MembershipEntity $membership
  *   MembershipEntity to save.
  */
-function membership_entity_save(MembershipEntity &$membership) {
-  return entity_save('membership_entity', $membership);
+function membership_entity_save(MembershipEntity $membership) {
+  return $membership->save();
 }
 
 /**

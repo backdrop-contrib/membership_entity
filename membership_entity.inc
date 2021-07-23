@@ -71,8 +71,62 @@ class MembershipEntity extends Entity {
    * Build a new membership entity.
    */
   public function __construct($values = array()) {
-    return parent::__construct($values, 'membership_entity');
+    return parent::__construct($values);
   }
+
+  /**
+   * Returns the entity identifier (the entity's machine name or numeric ID).
+   *
+   * @return
+   *   The identifier of the entity, or NULL if the entity does not yet have
+   *   an identifier.
+   */
+  public function id() {
+
+  }
+
+  /**
+   * Returns the type of the entity.
+   *
+   * @return
+   *   The type of the entity.
+   */
+  public function entityType() {
+    return 'membership_entity';
+  }
+
+  /**
+   * Returns the bundle of the entity.
+   *
+   * @return
+   *   The bundle of the entity. Defaults to the entity type if the entity type
+   *   does not make use of different bundles.
+   */
+  public function bundle() {
+    return $this->type ?? $this->entityType();
+  }
+
+  /**
+   * Returns the label of the entity.
+   *
+   * @return
+   *   The label of the entity, or NULL if there is no label defined.
+   */
+  public function label() {
+    return $this->label;
+  }
+
+  /**
+   * Returns the URI elements of the entity.
+   *
+   * @return
+   *   An array containing the 'path' and 'options' keys used to build the URI
+   *   of the entity, and matching the signature of url(). NULL if the entity
+   *   has no URI of its own.
+   */
+  public function uri() {
+
+}
 
   /**
    * Returns the primary member.

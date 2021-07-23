@@ -5,6 +5,24 @@
  * Allows users to create different types of memberships.
  */
 
+// Includes
+require_once dirname(__FILE__) . '/membership_entity_type.ui.inc'; // non class code in file
+
+/**
+ * implements hook_autoload_info().
+ *
+ * Return an array of files containing classes keyed by class name.
+ */
+function membership_entity_type_autoload_info() {
+  return array(
+    'MembershipEntityType' => 'membership_entity_type.inc',
+    'MembershipEntityTypeUIController' => 'membership_entity_type.ui.inc',
+    'MembershipEntityTypeController' => 'membership_entity_type.controller.inc',
+    'MembershipEntityTypeMetadataController' => 'membership_entity_type.info.inc',
+    'MembershipEntityTypeViewsController' => 'views/membership_entity_type.views.inc',
+  );
+}
+
 /**
  * Implements hook_help().
  */
@@ -297,16 +315,20 @@ function membership_entity_type_theme($existing, $type, $theme, $path) {
  */
 function membership_entity_type_get_types($machine_name = NULL) {
   $types = &drupal_static(__FUNCTION__, array());
-  if (empty($types)) {
-    $results = db_query('SELECT id, type, label, weight, description, data, status, module FROM {membership_entity_type}');
-    foreach ($results as $result) {
-      $result->data = unserialize($result->data);
-      $types[$result->type] = $result;
+
+  // Check that the module is currently installed.
+  if (module_exists('membership_entity_type')) {
+    if (empty($types)) {
+      $results = db_query('SELECT id, type, label, weight, description, data, status, module FROM {membership_entity_type}');
+      foreach ($results as $result) {
+        $result->data = unserialize($result->data);
+        $types[$result->type] = $result;
+      }
     }
   }
 
   if (isset($machine_name)) {
-    return isset($types[$machine_name]) ? $types[$machine_name] : FALSE;
+    return isset($types[$machine_name]) ? $types[$machine_name] : array();
   }
   return $types;
 }
@@ -347,7 +369,7 @@ function membership_entity_type_field_extra_fields() {
 /**
  * Create a new membership entity type with default values.
  *
- * @param optional|array $values
+ * @param array $values
  *   An associative array of settings to override the defaults.
  *
  * @return MembershipEntityType
@@ -378,7 +400,7 @@ function membership_entity_type_load($id = NULL, $reset = FALSE) {
  *
  * @param mixed $ids
  *   Array of MembershipEntityType ids, or FALSE.
- * @param optional|array $conditions
+ * @param array $conditions
  *   Optional array of conditions used to filter returned entities.
  * @param bool $reset
  *   Whether to reset the internal cache for the requested entity type.
@@ -403,7 +425,7 @@ function membership_entity_type_load_multiple($ids = FALSE, $conditions = array(
  *   how to save the entity, FALSE is returned.
  */
 function membership_entity_type_save(MembershipEntityType &$type) {
-  return entity_save('membership_entity_type', $type);
+  return $type->save();
 }
 
 /**

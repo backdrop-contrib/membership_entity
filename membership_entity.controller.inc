@@ -8,10 +8,10 @@
 /**
  * Entity controller class for membership entities.
  */
-class MembershipEntityController extends EntityAPIController {
+class MembershipEntityController extends EntityPlusController {
 
   /**
-   * Overrides EntityAPIController::create().
+   * Overrides EntityPlusController::create().
    */
   public function create(array $values = array()) {
     // Add some defaults.
@@ -32,7 +32,7 @@ class MembershipEntityController extends EntityAPIController {
   }
 
   /**
-   * Overrides EntityAPIController::load().
+   * Overrides EntityPlusController::load().
    */
   public function load($mids = array(), $conditions = array()) {
     $memberships = parent::load($mids, $conditions);
@@ -65,7 +65,8 @@ class MembershipEntityController extends EntityAPIController {
    *   The membership object identified by member id.
    */
   public function loadByMemberID($member_id) { // @codingStandardsIgnoreLine
-    return reset($this->load(FALSE, array('member_id' => $member_id)));
+    $result = $this->load(FALSE, array('member_id' => $member_id));
+    return reset($result);
   }
 
   /**
@@ -76,7 +77,7 @@ class MembershipEntityController extends EntityAPIController {
    * @param string $bundle
    *   The membership bundle to load.
    *
-   * @return MembershipEntity[]
+   * @return MembershipEntity[] | FALSE
    *   An array of all memberships for the given user account, keyed by
    *   bundle. If $bundle is provided, a single membership object if it exists,
    *   or FLASE otherwise.
@@ -105,7 +106,7 @@ class MembershipEntityController extends EntityAPIController {
   }
 
   /**
-   * Overrides EntityAPIController::save().
+   * Overrides EntityPlusController::save().
    */
   public function save($membership, DatabaseTransaction $transaction = NULL) {
     $transaction = isset($transaction) ? $transaction : db_transaction();
@@ -182,7 +183,7 @@ class MembershipEntityController extends EntityAPIController {
   }
 
   /**
-   * Overrides EntityAPIController::delete().
+   * Overrides EntityPlusController::delete().
    */
   public function delete($mids, DatabaseTransaction $transaction = NULL) {
     $memberships = $mids ? $this->load($mids) : FALSE;

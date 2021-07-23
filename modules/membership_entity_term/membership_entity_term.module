@@ -15,6 +15,29 @@ define('MEMBERSHIP_ENTITY_TERM_LENGTH_REGEX', '/^((\d+ (sec|second|min|minute|ho
  */
 define('MEMBERSHIP_ENTITY_TERM_MODIFIER_REGEX', '/^[\+-]((\d+ (sec|second|min|minute|hour|day|week|month|year)s?)\s?)$/i');
 
+// Includes
+require_once dirname(__FILE__) . '/views/membership_entity_term.views.inc';
+
+/**
+ * implements hook_autoload_info().
+ *
+ * Return an array of files containing classes keyed by class name.
+ */
+function membership_entity_term_autoload_info() {
+  return array(
+    'MembershipEntityTerm' => 'membership_entity_term.inc',
+    'MembershipEntityTermController' => 'membership_entity_term.controller.inc',
+    'MembershipEntityTermUIController' => 'membership_entity_term.ui.inc',
+    'MembershipEntityTermMetadataController' => 'membership_entity_term.info.inc',
+    'MembershipEntityTermViewsController' => 'views/MembershipEntitytermViewsComtroller.php',
+    'views_handler_relationship_term_groupwise_max' => 'views/views_handler_relationship_term_groupwise_max.inc',
+    'views_handler_field_membership_term_datetime' => 'views/views_handler_field_membership_term_datetime.inc',
+    'views_handler_field_membership_term_modifier' => 'views/views_handler_field_membership_term_modifier.inc',
+    'views_handler_filter_membership_term_datetime' => 'views/views_handler_filter_membership_term_datetime.inc',
+    //'MigrateDestinationMembershipEntityTerm' => 'membership_entity_term.migrate.inc',
+  );
+}
+
 /**
  * Implements hook_help().
  */
@@ -361,7 +384,7 @@ function membership_entity_term_membership_entity_term_start_date_alter(&$start,
     $latest_term = end($membership->terms);
 
     if (!empty($latest_term)) {
-      $grace = new DateObject($latest_term->end, 'UTC');
+      $grace = new BackdropDateTime($latest_term->end, 'UTC');
 
       // Check for grace period.
       if (preg_match(MEMBERSHIP_ENTITY_TERM_LENGTH_REGEX, $bundle_settings['grace_period'])) {
@@ -371,7 +394,7 @@ function membership_entity_term_membership_entity_term_start_date_alter(&$start,
       // If the renewal is within the grace period there is no lapse in
       // membership terms. The new term starts when the old term ended.
       if ($grace > $start) {
-        $start = new DateObject($latest_term->end, 'UTC');
+        $start = new BackdropDateTime($latest_term->end, 'UTC');
       }
     }
   }
@@ -745,7 +768,7 @@ function membership_entity_term_get_join_date(MembershipEntity $membership) {
     $terms = $membership->terms;
     uasort($terms, '_membership_entity_term_sort_by_start_date');
     $first = reset($terms);
-    return new DateObject($first->start, new DateTimezone($first->timezone));
+    return new BackdropDateTime($first->start, new DateTimezone($first->timezone));
   }
   return FALSE;
 }
@@ -774,7 +797,7 @@ function membership_entity_term_get_expiration_date(MembershipEntity $membership
     if ($last->term == 'lifetime') {
       return FALSE;
     }
-    return new DateObject($last->end, new DateTimezone($last->timezone));
+    return new BackdropDateTime($last->end, new DateTimezone($last->timezone));
   }
   return FALSE;
 }
@@ -829,7 +852,7 @@ function membership_entity_term_delete_multiple($ids) {
  * Save a membership term.
  */
 function membership_entity_term_save($term) {
-  return entity_save('membership_entity_term', $term);
+  return $term->save('membership_entity_term');
 }
 
 /**

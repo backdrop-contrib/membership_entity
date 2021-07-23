@@ -16,6 +16,8 @@ class MembershipEntityTypeUIController extends EntityDefaultUIController {
   public function hook_menu() { // @codingStandardsIgnoreLine, EntityDefaultUIController override compliant
     $items = parent::hook_menu();
     $items[$this->path]['description'] = 'Manage membership types and fields.';
+    $items[$this->path]['file path'] = backdrop_get_path('module', 'entity_ui');
+    $items[$this->path]['file'] = 'entity.ui.inc';
     return $items;
   }
 

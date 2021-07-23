@@ -28,6 +28,48 @@ class MembershipEntityType extends Entity {
   }
 
   /**
+   * Returns the entity identifier (the entity's machine name or numeric ID).
+   *
+   * @return
+   *   The identifier of the entity, or NULL if the entity does not yet have
+   *   an identifier.
+   */
+  public function id() {
+    return $this->id;
+  }
+
+  /**
+   * Returns the type of the entity.
+   *
+   * @return
+   *   The type of the entity.
+   */
+  public function entityType() {
+    return 'membership_entity_type';
+  }
+
+  /**
+   * Returns the bundle of the entity.
+   *
+   * @return
+   *   The bundle of the entity. Defaults to the entity type if the entity type
+   *   does not make use of different bundles.
+   */
+  public function bundle() {
+    return $this->type;
+  }
+
+  /**
+   * Returns the label of the entity.
+   *
+   * @return
+   *   The label of the entity, or NULL if there is no label defined.
+   */
+  public function label() {
+    return $this->label;
+  }
+
+  /**
    * Returns the full url to the membership type.
    *
    * @param optional|string $context
@@ -71,7 +113,8 @@ class MembershipEntityType extends Entity {
           return $this->defaultUri();
       }
     }
-    return entity_uri($this->entityType, $this);
+    //return entity_uri($this->entityType(), $this);
+    return $this->defaultUri();
   }
 
   /**
@@ -82,7 +125,10 @@ class MembershipEntityType extends Entity {
    */
   public function joinUri() {
     $type_url_str = str_replace('_', '-', $this->type);
-    return array('path' => 'user/join/' . $type_url_str);
+    return array(
+      'path' => 'user/join/' . $type_url_str,
+      'options' => array(),
+    );
   }
 
   /**
@@ -93,14 +139,20 @@ class MembershipEntityType extends Entity {
    */
   public function adminUri() {
     $type_url_str = str_replace('_', '-', $this->type);
-    return array('path' => 'admin/memberships/add/' . $type_url_str);
+    return array(
+      'path' => 'admin/memberships/add/' . $type_url_str,
+      'options' => array(),
+    );
   }
 
   /**
    * {@inheritdoc}
    */
   public function defaultUri() {
-    return array('path' => 'admin/memberships/types/manage/' . $this->type);
+    return array(
+      'path' => 'admin/memberships/types/manage/' . $this->type,
+      'options' => array(),
+    );
   }
 
 }

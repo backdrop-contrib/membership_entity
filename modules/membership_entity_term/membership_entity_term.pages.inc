@@ -10,7 +10,7 @@
  */
 function _membership_entity_term_settings_form(&$form, &$form_state, $data) {
   // Make date timezone options available.
-  form_load_include($form_state, 'inc', 'date', 'date_admin');
+  form_load_include($form_state, 'inc', 'date', 'date.admin');
 
   // Add a grace period.
   $grace_options = array(
@@ -419,7 +419,7 @@ function membership_entity_term_form(&$form, &$form_state) {
   }
 
   // Allow other modules to override the start date.
-  $start = new DateObject($term->start, 'UTC');
+  $start = new BackdropDateTime($term->start, 'UTC');
   drupal_alter('membership_entity_term_start_date', $start, $term);
 
   // Convert to appropriate timezone for display.
@@ -598,7 +598,7 @@ function membership_entity_term_form_validate($form, &$form_state) {
   }
 
   // Handle timezone conversion before saving.
-  $start = new DateObject($values['start'], $form['membership_term']['start']['#date_timezone']);
+  $start = new BackdropDateTime($values['start'], $form['membership_term']['start']['#date_timezone']);
   $start->setTimezone(new DateTimeZone($values['timezone']));
   form_set_value($form['membership_term']['start'], date_format_date($start, 'custom', DATE_FORMAT_DATETIME), $form_state);
 
@@ -722,7 +722,7 @@ function membership_entity_term_renew($form, &$form_state, $membership, $bundle 
 
   // Check for a pending renewal.
   $latest_term = end($membership->terms);
-  if ($latest_term->status == MEMBERSHIP_ENTITY_PENDING) {
+  if ($latest_term && $latest_term->status == MEMBERSHIP_ENTITY_PENDING) {
     drupal_set_message(t('Your membership term is currently pending. You will not be able to renew until your term is activated. If you feel that you have received this message in error, please contact a site administrator.'), 'warning');
     $form['actions']['submit']['#value'] .= " " . t('(disabled)');
     $form['actions']['submit']['#attributes']['disabled'] = 'disabled';

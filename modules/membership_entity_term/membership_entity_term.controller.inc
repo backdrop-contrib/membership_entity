@@ -8,10 +8,10 @@
 /**
  * Entity controller class for membership term entities.
  */
-class MembershipEntityTermController extends EntityAPIController {
+class MembershipEntityTermController extends EntityPlusController {
 
   /**
-   * Overrides EntityAPIController::create().
+   * Overrides EntityPlusController::create().
    */
   public function create(array $values = array()) {
     // Add some defaults.

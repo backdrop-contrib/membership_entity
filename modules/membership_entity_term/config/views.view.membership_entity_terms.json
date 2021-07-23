@@ -1,0 +1,214 @@
+{
+    "_config_name": "views.view.membership_entity_terms",
+    "name": "membership_entity_terms",
+    "description": "Display a list of terms for a membership.",
+    "tag": "membership_entity",
+    "disabled": false,
+    "base_table": "membership_entity_term",
+    "human_name": "Membership Terms",
+    "core": 7,
+    "display": {
+        "default": {
+            "display_title": "Master",
+            "display_plugin": "default",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "title": "Membership Terms",
+                "use_more_always": false,
+                "access": {
+                    "type": "none"
+                },
+                "cache": {
+                    "type": "none"
+                },
+                "exposed_form": {
+                    "type": "basic"
+                },
+                "pager": {
+                    "type": "full",
+                    "options": {
+                        "items_per_page": "5"
+                    }
+                },
+                "style_plugin": "table",
+                "style_options": {
+                    "row_class": "[current_1]",
+                    "columns": {
+                        "current": "current",
+                        "term": "term",
+                        "modifiers": "term",
+                        "start": "start",
+                        "end": "end",
+                        "status": "status",
+                        "edit": "edit",
+                        "current_1": "current_1"
+                    },
+                    "default": "start",
+                    "info": {
+                        "current": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 1
+                        },
+                        "term": {
+                            "sortable": 1,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "<br />",
+                            "empty_column": 0
+                        },
+                        "modifiers": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "start": {
+                            "sortable": 1,
+                            "default_sort_order": "desc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "end": {
+                            "sortable": 1,
+                            "default_sort_order": "desc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "status": {
+                            "sortable": 0,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "edit": {
+                            "align": "",
+                            "separator": " | ",
+                            "empty_column": 1
+                        },
+                        "current_1": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        }
+                    },
+                    "empty_table": true
+                },
+                "empty": {
+                    "area_text_custom": {
+                        "id": "area_text_custom",
+                        "table": "views",
+                        "field": "area_text_custom",
+                        "empty": true,
+                        "content": "There are no membership terms to display."
+                    }
+                },
+                "fields": {
+                    "current": {
+                        "id": "current",
+                        "table": "views_entity_membership_entity_term",
+                        "field": "current",
+                        "label": "",
+                        "element_label_colon": false,
+                        "type": "current",
+                        "not": 0,
+                        "link_to_entity": 0
+                    },
+                    "term": {
+                        "id": "term",
+                        "table": "membership_entity_term",
+                        "field": "term"
+                    },
+                    "modifiers": {
+                        "id": "modifiers",
+                        "table": "membership_entity_term",
+                        "field": "modifiers",
+                        "label": "",
+                        "element_label_colon": false
+                    },
+                    "start": {
+                        "id": "start",
+                        "table": "membership_entity_term",
+                        "field": "start",
+                        "date_format": "short"
+                    },
+                    "end": {
+                        "id": "end",
+                        "table": "membership_entity_term",
+                        "field": "end",
+                        "date_format": "short"
+                    },
+                    "status": {
+                        "id": "status",
+                        "table": "membership_entity_term",
+                        "field": "status"
+                    },
+                    "edit": {
+                        "id": "edit",
+                        "table": "membership_entity_term",
+                        "field": "edit",
+                        "label": "Operations"
+                    },
+                    "current_1": {
+                        "id": "current_1",
+                        "table": "views_entity_membership_entity_term",
+                        "field": "current",
+                        "ui_name": "Row class (current)",
+                        "label": "",
+                        "exclude": true,
+                        "element_label_colon": false,
+                        "type": "custom",
+                        "type_custom_true": "current",
+                        "not": 0,
+                        "link_to_entity": 0
+                    }
+                },
+                "sorts": {
+                    "start": {
+                        "id": "start",
+                        "table": "membership_entity_term",
+                        "field": "start",
+                        "order": "DESC"
+                    }
+                },
+                "arguments": {
+                    "membership": {
+                        "id": "membership",
+                        "table": "membership_entity_term",
+                        "field": "membership",
+                        "ui_name": "Membership ID",
+                        "default_action": "empty",
+                        "default_argument_type": "node",
+                        "summary": {
+                            "number_of_records": "0",
+                            "format": "default_summary"
+                        },
+                        "summary_options": {
+                            "items_per_page": "25"
+                        },
+                        "validate": {
+                            "fail": "ignore"
+                        }
+                    }
+                }
+            }
+        },
+        "term_list": {
+            "display_title": "Term list",
+            "display_plugin": "block",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "display_description": "A list of terms for a membership.",
+                "block_description": "Membership Terms"
+            }
+        }
+    }
+}

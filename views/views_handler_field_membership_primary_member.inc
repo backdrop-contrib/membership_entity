@@ -8,7 +8,7 @@
 /**
  * Field handler to show the primary member from the membership.
  */
-class views_handler_field_membership_primary_member extends entity_views_handler_field_entity { // @codingStandardsIgnoreLine, Views override compliant
+class views_handler_field_membership_primary_member extends entity_plus_views_handler_field_entity { // @codingStandardsIgnoreLine, Views override compliant
 
   /**
    * {@inheritdoc}

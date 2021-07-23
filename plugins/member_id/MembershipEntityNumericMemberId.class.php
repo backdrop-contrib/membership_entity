@@ -6,7 +6,7 @@
  */
 
 /**
- * MembershipEntityNumbericMemberId class.
+ * MembershipEntityNumericMemberId class.
  */
 class MembershipEntityNumericMemberId extends MembershipEntityMemberIdAbstract {
 

@@ -40,8 +40,8 @@ class MembershipEntityMetadataController extends EntityDefaultMetadataController
       'label' => t('Primary member'),
       'type' => 'user',
       'description' => t('The primary member on the membership.'),
-      'getter callback' => 'entity_property_getter_method',
-      'setter callback' => 'entity_property_setter_method',
+      'getter callback' => 'entity_plus_property_getter_method',
+      'setter callback' => 'entity_plus_property_setter_method',
       'setter permission' => 'administer memberships',
       'required' => TRUE,
       'schema field' => 'uid',
@@ -57,7 +57,7 @@ class MembershipEntityMetadataController extends EntityDefaultMetadataController
       'type' => 'date',
       'label' => t('Date created'),
       'description' => t('The date the membership was created.'),
-      'setter callback' => 'entity_property_verbatim_set',
+      'setter callback' => 'entity_plus_property_verbatim_set',
       'setter permission' => 'administer memberships',
     ) + $properties['created'];
 

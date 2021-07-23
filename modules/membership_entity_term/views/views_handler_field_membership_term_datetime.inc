@@ -37,7 +37,7 @@ class views_handler_field_membership_term_datetime extends views_handler_field_d
   public function get_value($values, $field = NULL) { // @codingStandardsIgnoreLine, Views override compliant
     $value = parent::get_value($values, $field);
     if (empty($field) || $field == $this->real_field) {
-      $date = new DateObject($value, 'UTC');
+      $date = new BackdropDateTime($value, 'UTC');
       return $date->format('U');
     }
     return $value;

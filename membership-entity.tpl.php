@@ -25,7 +25,7 @@
  * @ingroup themeable
  */
 ?>
-<div id="membership-<?php print $membership_entity->mid; ?>" class="<?php print $classes; ?> clearfix">
+<div id="membership-<?php print $membership_entity->mid; ?>" class="<?php print is_array($classes) ? implode(' ', $classes) : $classes; ?> clearfix">
   <div class="content">
     <?php
       hide($content['links']);
