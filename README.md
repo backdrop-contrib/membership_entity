@@ -28,6 +28,8 @@ membership sites.
   * When a membership expires all users attached to the membership are given
     the expired role.
   * Keeps track of membership terms.
+  * Can be integrated with contrib module Rules to provide additional
+    functionality.
 
 INSTALLATION
 ------------
@@ -35,7 +37,6 @@ INSTALLATION
 1. Download and install the following dependencies.
   * Entity Plus - https://backdropcms.org/project/entity_plus
   * Entity UI - https://backdropcms.org/project/entity_ui
-  * Rules - https://backdropcms.org/project/rules
 
 2. Enable the module(s).
   * Membership Entity provides the core membership features

@@ -7,11 +7,5 @@ backdrop = 1.x
 configure = admin/memberships/types/manage/membership
 
 dependencies[] = entity_plus
-dependencies[] = rules
+dependencies[] = entity_ui
 dependencies[] = views
-
-;;; Entity API integrations.
-;; CTools plugin definitions.
-;; Custom views handlers.
-;;;;; Migrate handlers.
-;; Tests
