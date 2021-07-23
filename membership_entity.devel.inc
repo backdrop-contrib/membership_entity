@@ -117,11 +117,11 @@ function membership_entity_devel_create_memberships(array $values) {
   if ($values['kill']) {
     $mids = db_query('SELECT mid FROM {membership_entity}')->fetchAllAssoc('mid');
     membership_entity_delete_multiple(array_keys($mids));
-    drupal_set_message(format_plural(count($mids), '1 membership deleted', '@count memberships deleted'));
+    backdrop_set_message(format_plural(count($mids), '1 membership deleted', '@count memberships deleted'));
   }
 
   $results = db_query('SELECT uid FROM {users} WHERE uid <> 0')->fetchAllAssoc('uid');
-  $users = drupal_map_assoc(array_keys($results));
+  $users = backdrop_map_assoc(array_keys($results));
 
   $used_users = array();
   $results = db_query('SELECT uid, type FROM {membership_entity}');
@@ -169,7 +169,7 @@ function membership_entity_devel_create_memberships(array $values) {
 
     if (module_exists('membership_entity_term') && !empty($values['term_count'])) {
       $terms = array();
-      $available_terms = drupal_map_assoc($bundle_settings['available_term_lengths']);
+      $available_terms = backdrop_map_assoc($bundle_settings['available_term_lengths']);
       $term_count = rand(1, $values['term_count']);
       for ($i = 0; $i < $term_count; $i++) {
         $term_length = array_rand($available_terms);
@@ -201,7 +201,7 @@ function membership_entity_devel_create_memberships(array $values) {
     }
   }
 
-  drupal_set_message(t('!num generated.', array(
+  backdrop_set_message(t('!num generated.', array(
     '!num' => format_plural($count, '1 membership', '@count memberships'),
   )));
 }

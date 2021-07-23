@@ -164,7 +164,7 @@ function membership_entity_type_menu() {
     $items['admin/memberships/add/' . $type_url_str] = array(
       'title' => $type->label,
       'title callback' => 'check_plain',
-      'page callback' => 'drupal_get_form',
+      'page callback' => 'backdrop_get_form',
       'page arguments' => array(
         'membership_entity_edit_form',
         NULL,
@@ -173,19 +173,19 @@ function membership_entity_type_menu() {
       'access arguments' => array('administer memberships'),
       'description' => $type->description,
       'file' => 'membership_entity.pages.inc',
-      'file path' => drupal_get_path('module', 'membership_entity'),
+      'file path' => backdrop_get_path('module', 'membership_entity'),
     );
 
     $items['user/join/' . $type_url_str] = array(
       'title' => 'Join - ' . $type->label,
       'title callback' => 'check_plain',
       'description' => $type->description,
-      'page callback' => 'drupal_get_form',
+      'page callback' => 'backdrop_get_form',
       'page arguments' => array('membership_entity_join_form', $type->type),
       'access callback' => 'membership_entity_access',
       'access arguments' => array('join', $type->type),
       'file' => 'membership_entity.pages.inc',
-      'file path' => drupal_get_path('module', 'membership_entity'),
+      'file path' => backdrop_get_path('module', 'membership_entity'),
     );
 
     if (module_exists('membership_entity_term')) {
@@ -197,7 +197,7 @@ function membership_entity_type_menu() {
         'page arguments' => array($type->type),
         'access callback' => TRUE,
         'file' => 'membership_entity_term.pages.inc',
-        'file path' => drupal_get_path('module', 'membership_entity_term'),
+        'file path' => backdrop_get_path('module', 'membership_entity_term'),
       );
     }
   }
@@ -314,7 +314,7 @@ function membership_entity_type_theme($existing, $type, $theme, $path) {
  *   Array of MembershipEntityTypes, keyed by machine name.
  */
 function membership_entity_type_get_types($machine_name = NULL) {
-  $types = &drupal_static(__FUNCTION__, array());
+  $types = &backdrop_static(__FUNCTION__, array());
 
   // Check that the module is currently installed.
   if (module_exists('membership_entity_type')) {

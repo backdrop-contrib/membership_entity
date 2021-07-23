@@ -9,7 +9,7 @@
    * Field instance settings screen: force the 'Display on renew form.'
    * checkbox checked whenever 'Required' is checked.
    */
-  Drupal.behaviors.fieldMembershipEntityTermRenew = {
+  Backdrop.behaviors.fieldMembershipEntityTermRenew = {
     attach: function (context, settings) {
       var $checkbox = $('form#field-ui-field-edit-form input#edit-instance-settings-membership-entity-term-renew-form');
       if ($checkbox.length) {

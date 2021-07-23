@@ -38,7 +38,7 @@ function ctools_include($file, $module = 'ctools', $dir = 'includes') {
   $dir = '/' . ($dir ? $dir . '/' : '');
 
   if (!isset($used[$module][$dir][$file])) {
-    require_once DRUPAL_ROOT . '/' . drupal_get_path('module', $module) . "$dir$file.inc";
+    require_once BACKDROP_ROOT . '/' . backdrop_get_path('module', $module) . "$dir$file.inc";
     $used[$module][$dir][$file] = TRUE;
   }
 }
@@ -78,7 +78,7 @@ function ctools_modal_form_wrapper($form_id, &$form_state) {
     'no_redirect' => !empty($form_state['ajax']),
   );
 
-  $output = drupal_build_form($form_id, $form_state);
+  $output = backdrop_build_form($form_id, $form_state);
   if (!empty($form_state['ajax']) && (!$form_state['executed'] || $form_state['rebuild'])) {
     return ctools_modal_form_render($form_state, $output);
   }
@@ -91,10 +91,10 @@ function ctools_modal_form_wrapper($form_id, &$form_state) {
  */
 function ctools_modal_form_render($form_state, $output) {
   if (is_array($output)) {
-    $output = drupal_render($output);
+    $output = backdrop_render($output);
   }
 
-  $title = empty($form_state['title']) ? drupal_get_title() : $form_state['title'];
+  $title = empty($form_state['title'])?backdrop_get_title() : $form_state['title'];
 
   // If there are messages for the form, render them.
   if ($messages = theme('status_messages')) {
@@ -116,7 +116,7 @@ function ctools_modal_form_render($form_state, $output) {
  */
 function ctools_modal_command_display($title, $html) {
   if (is_array($html)) {
-    $html = drupal_render($html);
+    $html = backdrop_render($html);
   }
 
   return array(
@@ -155,7 +155,7 @@ function ctools_plugin_get_class($plugin_definition, $class_name) {
     // $plugin['file'].  Don't try to run those.
     $info = ctools_plugin_get_info($plugin_definition['plugin module'], $plugin_definition['plugin type']);
     if (empty($info['info file'])) {
-      require_once DRUPAL_ROOT . '/' . $plugin_definition['path'] . '/' . $plugin_definition['file'];
+      require_once BACKDROP_ROOT . '/' . $plugin_definition['path'] . '/' . $plugin_definition['file'];
     }
   }
 
@@ -198,13 +198,13 @@ function ctools_plugin_get_info($module, $type) {
  *   name and each inner array keyed on plugin type name.
  */
 function ctools_plugin_get_plugin_type_info($flush = FALSE) {
-  static $drupal_static_fast;
-  if (!isset($drupal_static_fast)) {
-    $drupal_static_fast['info_loaded'] = &drupal_static('ctools_plugin_type_info_loaded', FALSE);
-    $drupal_static_fast['all_type_info'] = &drupal_static('ctools_plugin_type_info', array());
+  static $backdrop_static_fast;
+  if (!isset($backdrop_static_fast)) {
+    $backdrop_static_fast['info_loaded'] = &backdrop_static('ctools_plugin_type_info_loaded', FALSE);
+    $backdrop_static_fast['all_type_info'] = &backdrop_static('ctools_plugin_type_info', array());
   }
-  $info_loaded = &$drupal_static_fast['info_loaded'];
-  $all_type_info = &$drupal_static_fast['all_type_info'];
+  $info_loaded = &$backdrop_static_fast['info_loaded'];
+  $all_type_info = &$backdrop_static_fast['all_type_info'];
 
   // Only trigger info loading once.
   if ($info_loaded && !$flush) {
@@ -255,7 +255,7 @@ function ctools_plugin_get_plugin_type_info($flush = FALSE) {
  * Implement a modal form using AJAX.
  *
  * The modal form is implemented primarily from mc.js; this contains the
- * Drupal specific stuff to use it. The modal is fairly generic and can
+ * Backdrop specific stuff to use it. The modal is fairly generic and can
  * be activated mostly by setting up the right classes, but if you are
  * using the modal you must include links to the images in settings,
  * because the javascript does not inherently know where the images are.
@@ -312,11 +312,11 @@ function ctools_modal_add_js() {
     ),
   );
 
-  drupal_add_js($settings, 'setting');
-  drupal_add_library('system', 'jquery.form');
-  drupal_add_library('system', 'drupal.progress');
-  drupal_add_library('system', 'drupal.ajax');
-  drupal_add_library('system', 'ui');
+  backdrop_add_js($settings, 'setting');
+  backdrop_add_library('system', 'jquery.form');
+  backdrop_add_library('system', 'backdrop.progress');
+  backdrop_add_library('system', 'backdrop.ajax');
+  backdrop_add_library('system', 'ui');
   ctools_add_js('modal');
 
   ctools_add_css('modal');
@@ -342,11 +342,11 @@ function ctools_modal_add_js() {
 function ctools_get_plugins($module, $type, $id = NULL) {
   // Store local caches of plugins and plugin info so we don't have to do full
   // lookups every time.
-  static $drupal_static_fast;
-  if (!isset($drupal_static_fast)) {
-    $drupal_static_fast['plugins'] = &drupal_static('ctools_plugins', array());
+  static $backdrop_static_fast;
+  if (!isset($backdrop_static_fast)) {
+    $backdrop_static_fast['plugins'] = &backdrop_static('ctools_plugins', array());
   }
-  $plugins = &$drupal_static_fast['plugins'];
+  $plugins = &$backdrop_static_fast['plugins'];
 
   $info = ctools_plugin_get_plugin_type_info();
 
@@ -373,7 +373,7 @@ function ctools_get_plugins($module, $type, $id = NULL) {
 
   // Store the status of plugin loading. If a module plugin type pair is true,
   // then it is fully loaded and no searching or setup needs to be done.
-  $setup = &drupal_static('ctools_plugin_setup', array());
+  $setup = &backdrop_static('ctools_plugin_setup', array());
 
   // We assume we don't need to build a cache.
   $build_cache = FALSE;
@@ -478,7 +478,7 @@ function ctools_get_plugins($module, $type, $id = NULL) {
 function ctools_plugin_load_hooks($info) {
   $hooks = array();
   foreach (module_implements($info['hook']) as $module) {
-    $result = ctools_plugin_process($info, $module, $module, drupal_get_path('module', $module));
+    $result = ctools_plugin_process($info, $module, $module, backdrop_get_path('module', $module));
     if (is_array($result)) {
       $hooks = array_merge($hooks, $result);
     }
@@ -562,7 +562,7 @@ function _ctools_process_data($result, $plugin_type_info, $module, $path, $file)
 
     // Allow the plugin to be altered before processing.
     if (!empty($plugin_type_info['alterable']) && $plugin_type_info['alterable']) {
-      drupal_alter('ctools_plugin_pre', $result[$name], $plugin_type_info);
+      backdrop_alter('ctools_plugin_pre', $result[$name], $plugin_type_info);
     }
 
     // Allow the plugin owner to do additional processing.
@@ -572,7 +572,7 @@ function _ctools_process_data($result, $plugin_type_info, $module, $path, $file)
 
     // Allow the plugin to be altered after processing.
     if (!empty($plugin_type_info['alterable']) && $plugin_type_info['alterable']) {
-      drupal_alter('ctools_plugin_post', $result[$name], $plugin_type_info);
+      backdrop_alter('ctools_plugin_post', $result[$name], $plugin_type_info);
     }
   }
   return $result;
@@ -599,7 +599,7 @@ function ctools_plugin_get_function($plugin_definition, $function_name) {
     // $plugin['file'].  Don't try to run those.
     $info = ctools_plugin_get_info($plugin_definition['plugin module'], $plugin_definition['plugin type']);
     if (empty($info['info file'])) {
-      require_once DRUPAL_ROOT . '/' . $plugin_definition['path'] . '/' . $plugin_definition['file'];
+      require_once BACKDROP_ROOT . '/' . $plugin_definition['path'] . '/' . $plugin_definition['file'];
     }
   }
 
@@ -614,7 +614,7 @@ function ctools_plugin_get_function($plugin_definition, $function_name) {
       if (isset($plugin_definition[$function_name]['path'])) {
         $file = $plugin_definition[$function_name]['path'] . '/' . $file;
       }
-      require_once DRUPAL_ROOT . '/' . $file;
+      require_once BACKDROP_ROOT . '/' . $file;
     }
   }
   else {
@@ -639,14 +639,14 @@ function ctools_plugin_get_function($plugin_definition, $function_name) {
  */
 function ctools_plugin_load_includes($info, $filename = NULL) {
   // Keep a static array so we don't hit file_scan_directory more than necessary.
-  $all_files = &drupal_static(__FUNCTION__, array());
+  $all_files = &backdrop_static(__FUNCTION__, array());
 
   // Store static of plugin arrays for reference because they can't be
-  // reincluded, so there is no point in using drupal_static().
+  // reincluded, so there is no point in using backdrop_static().
   static $plugin_arrays = array();
 
   if (!isset($all_files[$info['module']][$info['type']])) {
-    $cache = cache_get("ctools_plugin_files:$info[module]:$info[type]");
+    $cache = cache_get("ctools_plugin_files:$info [module]:$info [type]");
     if ($cache) {
       $all_files[$info['module']][$info['type']] = $cache->data;
     }
@@ -663,7 +663,7 @@ function ctools_plugin_load_includes($info, $filename = NULL) {
         $all_files[$info['module']][$info['type']][$module] = file_scan_directory($path, '/\.' . $extension . '$/', array('key' => 'name'));
       }
 
-      cache_set("ctools_plugin_files:$info[module]:$info[type]", $all_files[$info['module']][$info['type']]);
+      cache_set("ctools_plugin_files:$info [module]:$info [type]", $all_files[$info['module']][$info['type']]);
     }
   }
   $file_list = $all_files[$info['module']][$info['type']];
@@ -673,7 +673,7 @@ function ctools_plugin_load_includes($info, $filename = NULL) {
   // that should now be available.
   foreach (array_filter($file_list) as $module => $files) {
     if ($filename) {
-      $files = isset($files[$filename]) ? array($filename => $files[$filename]) : array();
+      $files = isset($files[$filename])?array($filename => $files[$filename]) : array();
     }
     foreach ($files as $file) {
       if (!empty($info['info file'])) {
@@ -689,7 +689,7 @@ function ctools_plugin_load_includes($info, $filename = NULL) {
           $identifier = $plugin_arrays[$file->uri];
         }
         else {
-          include_once DRUPAL_ROOT . '/' . $file->uri;
+          include_once BACKDROP_ROOT . '/' . $file->uri;
           // .inc files have a special format for the hook identifier.
           // For example, 'foo.inc' in the module 'mogul' using the plugin
           // whose hook is named 'borg_type' should have a function named
@@ -737,7 +737,7 @@ function ctools_plugin_get_directories($info) {
     $function = $module . '_ctools_plugin_directory';
     $result = $function($info['module'], $info['type']);
     if ($result && is_string($result)) {
-      $directories[$module] = drupal_get_path('module', $module) . '/' . $result;
+      $directories[$module] = backdrop_get_path('module', $module) . '/' . $result;
     }
   }
 
@@ -745,7 +745,7 @@ function ctools_plugin_get_directories($info) {
     $themes = _ctools_list_themes();
     foreach ($themes as $name => $theme) {
       if (!empty($theme->info['plugins'][$info['module']][$info['type']])) {
-        $directories[$name] = drupal_get_path('theme', $name) . '/' . $theme->info['plugins'][$info['module']][$info['type']];
+        $directories[$name] = backdrop_get_path('theme', $name) . '/' . $theme->info['plugins'][$info['module']][$info['type']];
       }
     }
   }
@@ -767,7 +767,7 @@ function ctools_plugin_get_directories($info) {
  *   NULL on failure, otherwise an array containing the results keyed by name.
  */
 function ctools_plugin_process_info($info, $module, $file) {
-  $result = drupal_parse_info_file($file->uri);
+  $result = backdrop_parse_info_file($file->uri);
   if ($result) {
     $result = array($file->name => $result);
     return _ctools_process_data($result, $info, $module, dirname($file->uri), basename($file->uri));
@@ -784,7 +784,7 @@ function ctools_plugin_process_info($info, $module, $file) {
 function _ctools_list_themes() {
   static $themes;
   if (is_null($themes)) {
-    $current = variable_get('theme_default', FALSE);
+    $current = config_get('system.performance', 'theme_default');
     $themes = $active = array();
     $all_themes = list_themes();
     foreach ($all_themes as $name => $theme) {
@@ -793,7 +793,7 @@ function _ctools_list_themes() {
         continue;
       }
       $active[$name] = $theme;
-      // Prior to drupal 6.14, $theme->base_themes does not exist. Build it.
+      // Prior to backdrop 6.14, $theme->base_themes does not exist. Build it.
       if (!isset($theme->base_themes) && !empty($theme->base_theme)) {
         $active[$name]->base_themes = ctools_find_base_themes($all_themes, $name);
       }
@@ -826,7 +826,7 @@ function _ctools_list_themes() {
  *
  * NOTE: this is a verbatim copy of system_find_base_themes(), which was not
  * implemented until 6.14. It is included here only as a fallback for outdated
- * versions of drupal core.
+ * versions of backdrop core.
  *
  * @param $themes
  *   An array of available themes.
@@ -905,7 +905,7 @@ function ctools_modal_text_button($text, $dest, $alt, $class = '') {
  *   to ctools-use-ajax.
  */
 function ctools_ajax_text_button($text, $dest, $alt, $class = '', $type = 'use-ajax') {
-  drupal_add_library('system', 'drupal.ajax');
+  backdrop_add_library('system', 'backdrop.ajax');
   return l($text, $dest, array('html' => TRUE, 'attributes' => array('class' => array($type, $class), 'title' => $alt)));
 }
 
@@ -923,10 +923,10 @@ function ctools_ajax_text_button($text, $dest, $alt, $class = '', $type = 'use-a
  *   Optional subdirectory containing the include file.
  *
  * @return string
- *   A string containing the appropriate path from drupal root.
+ *   A string containing the appropriate path from backdrop root.
  */
 function ctools_image_path($image, $module = 'ctools', $dir = 'images') {
-  return drupal_get_path('module', $module) . "/$dir/" . $image;
+  return backdrop_get_path('module', $module) . "/$dir/" . $image;
 }
 
 /**
@@ -943,7 +943,7 @@ function ctools_image_path($image, $module = 'ctools', $dir = 'images') {
  *   Optional subdirectory containing the include file.
  */
 function ctools_add_js($file, $module = 'ctools', $dir = 'js') {
-  drupal_add_js(drupal_get_path('module', $module) . "/$dir/$file.js");
+  backdrop_add_js(backdrop_get_path('module', $module) . "/$dir/$file.js");
 }
 
 /**
@@ -960,5 +960,5 @@ function ctools_add_js($file, $module = 'ctools', $dir = 'js') {
  *   Optional subdirectory containing the include file.
  */
 function ctools_add_css($file, $module = 'ctools', $dir = 'css') {
-  drupal_add_css(drupal_get_path('module', $module) . "/$dir/$file.css");
+  backdrop_add_css(backdrop_get_path('module', $module) . "/$dir/$file.css");
 }

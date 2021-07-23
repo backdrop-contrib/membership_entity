@@ -1,3 +1,8 @@
+Membership Entity 1.x-1.0.0, 2021-07-31
+---------------------------------------
+Backdrop port, initial release.
+No new functionality.
+
 Membership Entity 7.x-1.0-beta1, 2015-07-16
 -------------------------------------
 Adds automated tests.

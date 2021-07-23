@@ -189,7 +189,7 @@ class MembershipEntityTokenMemberId extends MembershipEntityMemberIdAbstract {
   public function patternElementValidate(&$element, &$form_state) {
     $value = isset($element['#value']) ? $element['#value'] : $element['#default_value'];
 
-    if (!drupal_strlen($value)) {
+    if (!backdrop_strlen($value)) {
       // Empty value needs no further validation since the element should depend
       // on using the '#required' FAPI property.
       return $element;
@@ -261,7 +261,7 @@ function _membership_entity_token_clean_string($string, array $settings) {
   if ($ignore_words_regex) {
     $ignore_words_regex = '/\b' . $ignore_words_regex . '\b/i';
     $words_removed = preg_replace($ignore_words_regex, '', $return);
-    if (drupal_strlen(trim($words_removed)) > 0) {
+    if (backdrop_strlen(trim($words_removed)) > 0) {
       $return = $words_removed;
     }
   }
@@ -271,10 +271,10 @@ function _membership_entity_token_clean_string($string, array $settings) {
 
   // Convert to lower or upper case.
   if ($settings['case'] == 'lower') {
-    $return = drupal_strtolower($return);
+    $return = backdrop_strtolower($return);
   }
   elseif ($settings['case'] == 'upper') {
-    $return = drupal_strtoupper($return);
+    $return = backdrop_strtoupper($return);
   }
 
   // Shorten to maxlength.

@@ -42,7 +42,7 @@ class MembershipEntityNumericMemberId extends MembershipEntityMemberIdAbstract {
    * {@inheritdoc}
    */
   public function validateSettings(array &$element, array &$form_state) {
-    $schema = drupal_get_schema('membership_entity');
+    $schema = backdrop_get_schema('membership_entity');
     if ($element['length']['#value'] > $schema['fields']['member_id']['length']) {
       form_error($element['length'], t('Member ID length cannot exceed %max.', array(
         '%max' => $schema['fields']['member_id']['length'],

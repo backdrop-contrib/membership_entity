@@ -69,7 +69,7 @@ function _membership_entity_term_settings_form(&$form, &$form_state, $data) {
     '#type' => 'select',
     '#title' => t('Timezone handling'),
     '#description' => t('Select the timezone handling method for term dates. See <a href="@url">time zone handling</a> for details.', array(
-      '@url' => url('https://www.drupal.org/node/1455578', array('external' => TRUE)),
+      '@url' => url('https://www.backdrop.org/node/1455578', array('external' => TRUE)),
     )),
     '#default_value' => $data['tz_handling'],
     '#options' => date_timezone_handling_options(),
@@ -385,7 +385,7 @@ function membership_entity_term_edit_form_submit($form, &$form_state) {
   $form_state['membership_entity_term'] = $term;
   switch ($status) {
     case SAVED_UPDATED:
-      drupal_set_message(t('The membership term has been updated.'));
+      backdrop_set_message(t('The membership term has been updated.'));
       $form_state['redirect'] = 'membership/' . $term->mid;
       break;
   }
@@ -420,7 +420,7 @@ function membership_entity_term_form(&$form, &$form_state) {
 
   // Allow other modules to override the start date.
   $start = new BackdropDateTime($term->start, 'UTC');
-  drupal_alter('membership_entity_term_start_date', $start, $term);
+  backdrop_alter('membership_entity_term_start_date', $start, $term);
 
   // Convert to appropriate timezone for display.
   $timezone = date_get_timezone($bundle_settings['tz_handling'], $term->timezone);
@@ -462,7 +462,7 @@ function membership_entity_term_form(&$form, &$form_state) {
     );
   }
 
-  $options = drupal_map_assoc($bundle_settings['available_term_lengths']);
+  $options = backdrop_map_assoc($bundle_settings['available_term_lengths']);
   $form['membership_term']['term'] = array(
     '#type' => 'radios',
     '#title' => t('Term length'),
@@ -577,7 +577,7 @@ function membership_entity_term_form(&$form, &$form_state) {
   $form['membership_term']['#pre_render'][] = '_membership_entity_extra_fields_pre_render';
 
   // Allow other modules to alter the form.
-  drupal_alter('membership_entity_term_form', $form['membership_term'], $form_state, $term);
+  backdrop_alter('membership_entity_term_form', $form['membership_term'], $form_state, $term);
 }
 
 /**
@@ -663,7 +663,7 @@ function _membership_entity_term_modifier_array_map($a) {
  * Menu callback: Renew an existing membership.
  */
 function membership_entity_term_renew($form, &$form_state, $membership, $bundle = 'membership') {
-  drupal_set_title(t('Renew membership @member_id', array('@member_id' => $membership->member_id)));
+  backdrop_set_title(t('Renew membership @member_id', array('@member_id' => $membership->member_id)));
   $form['#membership_entity'] = $membership;
   $form['#membership_entity']->is_renewal = TRUE;
   $form['#bundle_settings'] = $bundle_settings = membership_entity_get_bundle_settings($membership->type);
@@ -723,7 +723,7 @@ function membership_entity_term_renew($form, &$form_state, $membership, $bundle 
   // Check for a pending renewal.
   $latest_term = end($membership->terms);
   if ($latest_term && $latest_term->status == MEMBERSHIP_ENTITY_PENDING) {
-    drupal_set_message(t('Your membership term is currently pending. You will not be able to renew until your term is activated. If you feel that you have received this message in error, please contact a site administrator.'), 'warning');
+    backdrop_set_message(t('Your membership term is currently pending. You will not be able to renew until your term is activated. If you feel that you have received this message in error, please contact a site administrator.'), 'warning');
     $form['actions']['submit']['#value'] .= " " . t('(disabled)');
     $form['actions']['submit']['#attributes']['disabled'] = 'disabled';
     $form['actions']['submit']['#validate'] = array('membership_entity_term_form_disabled_validate');
@@ -754,7 +754,7 @@ function membership_entity_term_renew_submit($form, &$form_state) {
   $form_state['membership_entity_term'] = $term;
   switch ($status) {
     case SAVED_NEW:
-      drupal_set_message(t('The membership has been renewed.'));
+      backdrop_set_message(t('The membership has been renewed.'));
       $form_state['redirect'] = 'membership/' . $term->mid;
       break;
   }
@@ -769,7 +769,7 @@ function membership_entity_term_renew_submit($form, &$form_state) {
 function membership_entity_term_edit_form_delete($form, &$form_state) {
   $destination = array();
   if (isset($_GET['destination'])) {
-    $destination = drupal_get_destination();
+    $destination = backdrop_get_destination();
     unset($_GET['destination']);
   }
   $term = $form['#membership_entity_term'];
@@ -797,7 +797,7 @@ function membership_entity_term_delete_confirm_submit($form, &$form_state) {
   $term = $form_state['term'];
   if ($form_state['values']['confirm']) {
     membership_entity_term_delete($term->id);
-    drupal_set_message(t('Deleted 1 membership term.'));
+    backdrop_set_message(t('Deleted 1 membership term.'));
   }
   $form_state['redirect'] = 'membership/' . $membership->mid;
 }
@@ -814,7 +814,7 @@ function membership_entity_term_renew_page($bundle = 'membership') {
   $membership = !empty($result['membership_entity']) ? membership_entity_load(current(array_keys($result['membership_entity']))) : FALSE;
   if (!empty($membership)) {
     if (membership_entity_term_access('renew', $membership)) {
-      return drupal_get_form('membership_entity_term_renew', $membership, $bundle);
+      return backdrop_get_form('membership_entity_term_renew', $membership, $bundle);
     }
     else {
       $output['access_denied'] = array(
@@ -845,7 +845,7 @@ function membership_entity_term_renew_page($bundle = 'membership') {
       '#title' => t('Log in'),
       '#href' => 'user/login',
       '#options' => array(
-        'query' => drupal_get_destination(),
+        'query' => backdrop_get_destination(),
       ),
       '#attributes' => array('class' => array('button')),
     );

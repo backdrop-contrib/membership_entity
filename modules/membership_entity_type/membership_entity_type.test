@@ -109,13 +109,13 @@ class MembershipEntityTypeCreateTestCase extends MembershipEntityTypeWebTestCase
    */
   public function testCreateMembershipTypeAdmin() {
     // Create and login an admin user.
-    $admin = $this->drupalCreateUser(array('administer membership types'));
-    $this->drupalLogin($admin);
+    $admin = $this->backdropCreateUser(array('administer membership types'));
+    $this->backdropLogin($admin);
 
     // Add a membership type.
-    $this->drupalGet('admin/memberships/types');
+    $this->backdropGet('admin/memberships/types');
     $this->clickLink('Add membership type');
-    $this->assertTitle('Add membership type | Drupal');
+    $this->assertTitle('Add membership type | Backdrop');
 
     $label = $this->randomName();
     $edit = array(
@@ -129,7 +129,7 @@ class MembershipEntityTypeCreateTestCase extends MembershipEntityTypeWebTestCase
       'primary_role' => $this->member_role,
       'secondary_role' => 'primary',
     );
-    $this->drupalPost('admin/memberships/types/add', $edit, 'Save configuration');
+    $this->backdropPost('admin/memberships/types/add', $edit, 'Save configuration');
     $this->assertText(format_string('Membership type @name has been created.', array('@name' => $label)), 'Membership type created by admin.');
 
     $type = db_query('SELECT id FROM {membership_entity_type} WHERE label = :label', array(':label' => $label));

@@ -27,7 +27,7 @@ function membership_entity_type_membership_add_page($context = 'join') {
 
   // Bypass the type listing if only one type is available.
   if (count($types) == 1) {
-    drupal_goto(reset($types)->path($context));
+    backdrop_goto(reset($types)->path($context));
   }
 
   return theme('membership_entity_type_add_list', array(
@@ -65,7 +65,7 @@ function membership_entity_type_renew_page() {
   // Bypass the type listing if only one membership is available.
   if (count($memberships) == 1) {
     $type_url_string = str_replace('_', '-', reset($memberships)->type);
-    drupal_goto('user/renew/' . $type_url_string);
+    backdrop_goto('user/renew/' . $type_url_string);
   }
 
   $output['select_membership'] = array(
@@ -105,7 +105,7 @@ function membership_entity_type_renew_page() {
  * Returns HTML for a list of available membership types.
  *
  * @param array $variables
- *   Theme layer Drupal variables array.
+ *   Theme layer Backdrop variables array.
  *
  * @return string
  *   HTML output for theme layer.

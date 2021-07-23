@@ -126,7 +126,7 @@ public function views_data() {
       $table = $this->info['base table'];
       // Define the base group of this table. Fields that don't
       // have a group defined will go into this field by default.
-      $data[$table]['table']['group']  = drupal_ucfirst($this->info['label']);
+      $data[$table]['table']['group']  = backdrop_ucfirst($this->info['label']);
       $data[$table]['table']['entity type'] = $this->type;
 
       // If the plural label isn't available, use the regular label.
@@ -134,7 +134,7 @@ public function views_data() {
       $data[$table]['table']['base'] = array(
         'field' => $this->info['entity keys']['id'],
         'access query tag' => $this->type . '_access',
-        'title' => drupal_ucfirst($label),
+        'title' => backdrop_ucfirst($label),
         'help' => isset($this->info['description']) ? $this->info['description'] : '',
       );
       $data[$table]['table']['entity type'] = $this->type;
@@ -155,7 +155,7 @@ public function views_data() {
 
       // Define the base group of this table. Fields that don't
       // have a group defined will go into this field by default.
-      $data[$revision_table]['table']['group']  = drupal_ucfirst($this->info['label']) . ' ' . t('Revisions');
+      $data[$revision_table]['table']['group']  = backdrop_ucfirst($this->info['label']) . ' ' . t('Revisions');
       $data[$revision_table]['table']['entity type'] = $this->type;
 
       // If the plural label isn't available, use the regular label.
@@ -163,7 +163,7 @@ public function views_data() {
       $data[$revision_table]['table']['base'] = array(
         'field' => $this->info['entity keys']['revision'],
         'access query tag' => $this->type . '_access',
-        'title' => drupal_ucfirst($label) . ' ' . t('Revisions'),
+        'title' => backdrop_ucfirst($label) . ' ' . t('Revisions'),
         'help' => (isset($this->info['description']) ? $this->info['description'] . ' ' : '') . t('Revisions'),
       );
       $data[$revision_table]['table']['entity type'] = $this->type;
@@ -195,7 +195,7 @@ public function views_data() {
    * the entity property information.
    */
   protected function schema_fields() {
-    $schema = drupal_get_schema($this->info['base table']);
+    $schema = backdrop_get_schema($this->info['base table']);
     $properties = $this->entity_get_property_info($this->type) + array('properties' => array());
     $data = array();
 
@@ -216,7 +216,7 @@ public function views_data() {
   protected function schema_revision_fields() {
     $data = array();
     if (!empty($this->info['revision table'])) {
-      $schema = drupal_get_schema($this->info['revision table']);
+      $schema = backdrop_get_schema($this->info['revision table']);
       $properties = $this->entity_get_property_info($this->type) + array('properties' => array());
 
       foreach ($properties['properties'] as $name => $property_info) {
@@ -253,8 +253,8 @@ public function views_data() {
     if (($info = entity_get_info($type)) && !empty($info['base table'])) {
 
       // Prepare reversed relationship data.
-      $label_lowercase = drupal_strtolower($this->info['label'][0]) . drupal_substr($this->info['label'], 1);
-      $property_label_lowercase = drupal_strtolower($property_info['label'][0]) . drupal_substr($property_info['label'], 1);
+      $label_lowercase = backdrop_strtolower($this->info['label'][0]) . backdrop_substr($this->info['label'], 1);
+      $property_label_lowercase = backdrop_strtolower($property_info['label'][0]) . backdrop_substr($property_info['label'], 1);
 
       // We name the field of the first reverse-relationship just with the
       // base table to be backward compatible, for subsequents relationships we
@@ -273,7 +273,7 @@ public function views_data() {
       );
 
       $return['relationship'] = array(
-        'label' => drupal_ucfirst($info['label']),
+        'label' => backdrop_ucfirst($info['label']),
         'handler' => $this->getRelationshipHandlerClass($type, $this->type),
         'base' => $info['base table'],
         'base field' => isset($info['entity keys']['name']) ? $info['entity keys']['name'] : $info['entity keys']['id'],
@@ -486,12 +486,12 @@ public function views_data() {
    * @see hook_entity_property_info_alter()
    */
   protected function entity_get_property_info($entity_type = NULL) {
-    // Use the advanced drupal_static() pattern, since this is called very often.
-    static $drupal_static_fast;
-    if (!isset($drupal_static_fast)) {
-      $drupal_static_fast['info'] = &drupal_static(__FUNCTION__);
+    // Use the advanced backdrop_static() pattern, since this is called very often.
+    static $backdrop_static_fast;
+    if (!isset($backdrop_static_fast)) {
+      $backdrop_static_fast['info'] = &backdrop_static(__FUNCTION__);
     }
-    $info = &$drupal_static_fast['info'];
+    $info = &$backdrop_static_fast['info'];
 
     // hook_entity_property_info() includes translated strings, so each language
     // is cached separately.
@@ -504,7 +504,7 @@ public function views_data() {
       else {
         $info = module_invoke_all('entity_property_info');
         // Let other modules alter the entity info.
-        drupal_alter('entity_property_info', $info);
+        backdrop_alter('entity_property_info', $info);
         cache_set("entity_property_info:$langcode", $info);
       }
     }

@@ -157,11 +157,11 @@ function membership_entity_type_form_submit($form, &$form_state) {
 
   switch ($status) {
     case SAVED_NEW:
-      drupal_set_message(t('Membership type %label has been created.', $t_args));
+      backdrop_set_message(t('Membership type %label has been created.', $t_args));
       break;
 
     case SAVED_UPDATED:
-      drupal_set_message(t('Membership type %label has been updated.', $t_args));
+      backdrop_set_message(t('Membership type %label has been updated.', $t_args));
       break;
   }
   $form_state['redirect'] = 'admin/memberships/types/manage/' . $type->type;
@@ -183,6 +183,6 @@ function membership_entity_type_confirm_delete($form, &$form_state, $type) {
 function membership_entity_type_confirm_delete_submit($form, &$form_state) {
   $type = $form_state['complete form']['#membership_type'];
   membership_entity_type_delete($type);
-  drupal_set_message(t('The membership type %name has been deleted.', array('%name' => $type->name)));
+  backdrop_set_message(t('The membership type %name has been deleted.', array('%name' => $type->name)));
   $form_state['redirect'] = 'admin/memberships/types';
 }

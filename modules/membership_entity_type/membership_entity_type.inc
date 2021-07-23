@@ -84,7 +84,7 @@ class MembershipEntityType extends Entity {
   }
 
   /**
-   * Returns the Drupal path to the membership type.
+   * Returns the Backdrop path to the membership type.
    *
    * @param optional|string $context
    *   String containing context action.

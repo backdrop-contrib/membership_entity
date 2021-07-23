@@ -10,23 +10,8 @@ dependencies[] = entity_plus
 dependencies[] = rules
 dependencies[] = views
 
-;files[] = membership_entity.inc
-;files[] = membership_entity.controller.inc
-
-; Entity API integrations.
-;files[] = membership_entity.info.inc
-
-; CTools plugin definitions.
-;files[] = plugins/member_id/abstract.inc
-
-; Custom views handlers.
-;files[] = views/membership_entity.views.inc
-;files[] = views/views_handler_field_membership_primary_member.inc
-;files[] = views/views_handler_field_membership_secondary_member.inc
-;files[] = views/views_handler_field_membership_link.inc
-
-; Migrate handlers.
-;files[] = membership_entity.migrate.inc
-
-; Tests
-files[] = membership_entity.test
+;;; Entity API integrations.
+;; CTools plugin definitions.
+;; Custom views handlers.
+;;;;; Migrate handlers.
+;; Tests

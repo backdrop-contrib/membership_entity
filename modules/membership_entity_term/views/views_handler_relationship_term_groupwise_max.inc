@@ -78,7 +78,7 @@ class views_handler_relationship_term_groupwise_max extends views_handler_relati
 
       // Add the sort from the options to the default display.
       // This is broken, in that the sort order field also gets added as a
-      // select field. See http://drupal.org/node/844910.
+      // select field. See https://drupal.org/node/844910.
       // We work around this further down.
       $sort = $options['subquery_sort'];
       if (!empty($sort)) {
@@ -123,7 +123,7 @@ class views_handler_relationship_term_groupwise_max extends views_handler_relati
       $subquery->condition($this->definition['base'] . '.status', $status_list, 'IN');
     }
 
-    // Workaround until http://drupal.org/node/844910 is fixed:
+    // Workaround until https://drupal.org/node/844910 is fixed:
     // Remove all fields from the SELECT except the base id.
     $fields =& $subquery->getFields();
     foreach (array_keys($fields) as $field_name) {

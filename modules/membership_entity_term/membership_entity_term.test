@@ -79,7 +79,7 @@ class MembershipEntityTermCreateTestCase extends MembershipEntityTermWebTestCase
    * Test creating a membership term.
    */
   public function testCreateMembershipTerm() {
-    $member = $this->drupalCreateUser(array('membership join'));
+    $member = $this->backdropCreateUser(array('membership join'));
     $membership = $this->createMembership(array('uid' => $member->uid));
     $term = membership_entity_term_create(array(
       'mid' => $membership->mid,
@@ -101,10 +101,10 @@ class MembershipEntityTermCreateTestCase extends MembershipEntityTermWebTestCase
    */
   public function testCreateMembershipTermAdmin() {
     // Create and login an admin user.
-    $admin = $this->drupalCreateUser(array('administer memberships', 'administer membership terms'));
-    $this->drupalLogin($admin);
+    $admin = $this->backdropCreateUser(array('administer memberships', 'administer membership terms'));
+    $this->backdropLogin($admin);
 
-    $member = $this->drupalCreateUser(array('membership join'));
+    $member = $this->backdropCreateUser(array('membership join'));
     $edit = array(
       'uid[0][value]' => $member->name,
       'membership_term[status]' => MEMBERSHIP_ENTITY_ACTIVE,
@@ -116,7 +116,7 @@ class MembershipEntityTermCreateTestCase extends MembershipEntityTermWebTestCase
       'membership_term[start][second]' => '00',
       'membership_term[term]' => '1 year',
     );
-    $this->drupalPost('admin/memberships/add', $edit, 'Save');
+    $this->backdropPost('admin/memberships/add', $edit, 'Save');
     $this->assertText('Membership 00001 has been created.', 'Membership with term created by admin.');
   }
 
@@ -166,7 +166,7 @@ class MembershipEntityTermLengthTestCase extends MembershipEntityTermWebTestCase
       'lifetime' => array('lifetime', '2015-01-01 00:00:00', NULL),
     );
 
-    $member = $this->drupalCreateUser(array('membership join'));
+    $member = $this->backdropCreateUser(array('membership join'));
     $membership = $this->createMembership(array('uid' => $member->uid));
     foreach ($tests as $test => $values) {
       $term = $this->createmembershipTerm(array(
@@ -213,7 +213,7 @@ class MembershipEntityTermLengthTestCase extends MembershipEntityTermWebTestCase
       ),
     );
 
-    $member = $this->drupalCreateUser(array('membership join'));
+    $member = $this->backdropCreateUser(array('membership join'));
     $membership = $this->createMembership(array('uid' => $member->uid));
     foreach ($tests as $test => $values) {
       $modifiers = is_array($values[1]) ? $values[1] : array($values[1]);
@@ -249,11 +249,11 @@ class MembershipEntityTermEditTestCase extends MembershipEntityTermWebTestCase {
    * Test editing a membership as an administrator.
    */
   public function testMembershipEditAsAdmin() {
-    $admin = $this->drupalCreateUser(array('administer memberships', 'administer membership terms'));
-    $this->drupalLogin($admin);
+    $admin = $this->backdropCreateUser(array('administer memberships', 'administer membership terms'));
+    $this->backdropLogin($admin);
 
     // Create a membership.
-    $member = $this->drupalCreateUser(array('membership join'));
+    $member = $this->backdropCreateUser(array('membership join'));
     $membership = $this->createMembership(array('uid' => $member->uid));
     $term = $this->createMembershipTerm(array(
       'mid' => $membership->mid,
@@ -273,8 +273,8 @@ class MembershipEntityTermEditTestCase extends MembershipEntityTermWebTestCase {
     );
 
     $edit_path = "membership/$membership->mid/term/$term->id/edit";
-    $this->drupalGet($edit_path);
-    $this->assertTitle('Edit Term | Drupal', 'Membership term edit form displayed.');
+    $this->backdropGet($edit_path);
+    $this->assertTitle('Edit Term | Backdrop', 'Membership term edit form displayed.');
     foreach ($fields as $name => $value) {
       $this->assertFieldByName($name, $value, format_string('The @name field is displayed on the term edit form.', array('@name' => $name)));
     }
@@ -289,7 +289,7 @@ class MembershipEntityTermEditTestCase extends MembershipEntityTermWebTestCase {
       'membership_term[start][second]' => '45',
       'membership_term[term]' => '2 years',
     );
-    $this->drupalPost($edit_path, $edit, 'Save');
+    $this->backdropPost($edit_path, $edit, 'Save');
 
     $this->assertText('The membership term has been updated.', 'Membership term updated by admin from the edit form.');
     $this->assertText('2 years', 'Term length saved from edit form.');
@@ -319,11 +319,11 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
    * Test renewing a membership as an administrator.
    */
   public function testMembershipRenewAsAdmin() {
-    $admin = $this->drupalCreateUser(array('administer memberships', 'administer membership terms'));
-    $this->drupalLogin($admin);
+    $admin = $this->backdropCreateUser(array('administer memberships', 'administer membership terms'));
+    $this->backdropLogin($admin);
 
     // Create a membership.
-    $member = $this->drupalCreateUser(array('membership join'));
+    $member = $this->backdropCreateUser(array('membership join'));
     $membership = $this->createMembership(array('uid' => $member->uid));
 
     // Create the initial term.
@@ -349,8 +349,8 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
     );
 
     $renew_path = "membership/$membership->mid/renew";
-    $this->drupalGet($renew_path);
-    $this->assertTitle("Renew membership $membership->member_id | Drupal", "The renew form is displayed for admin.");
+    $this->backdropGet($renew_path);
+    $this->assertTitle("Renew membership $membership->member_id | Backdrop", "The renew form is displayed for admin.");
     foreach ($fields as $name => $value) {
       $this->assertFieldByName($name, $value, format_string('The @name field is displayed on the renew form.', array('@name' => $name)));
     }
@@ -368,7 +368,7 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
       'membership_term[term]' => '2 years',
       'membership_term[status]' => MEMBERSHIP_ENTITY_ACTIVE,
     );
-    $this->drupalPost($renew_path, $edit, 'Renew');
+    $this->backdropPost($renew_path, $edit, 'Renew');
 
     $this->assertText('The membership has been renewed.', 'Membership renewed by admin.');
     $terms = membership_entity_term_load_by_membership($membership);
@@ -383,13 +383,13 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
    * Test renewing a membership as a member.
    */
   public function testMembershipRenewAsMember() {
-    $member = $this->drupalCreateUser(array(
+    $member = $this->backdropCreateUser(array(
       'membership join',
       'membership view own membership',
       'membership edit own membership',
       'membership renew own membership',
     ));
-    $this->drupalLogin($member);
+    $this->backdropLogin($member);
 
     // Create a membership and initial term.
     $membership = $this->createMembership(array('uid' => $member->uid));
@@ -402,8 +402,8 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
     ));
 
     $renew_path = "membership/$membership->mid/renew";
-    $this->drupalGet($renew_path);
-    $this->assertTitle("Renew membership $membership->member_id | Drupal", 'The renew form is displayed for a member.');
+    $this->backdropGet($renew_path);
+    $this->assertTitle("Renew membership $membership->member_id | Backdrop", 'The renew form is displayed for a member.');
     $this->assertNoFieldByName('member_id', $membership->member_id, 'The member id cannot be edited by a member on the renew form.');
     $this->assertText('Unique membership id: ' . $membership->member_id, 'The member id is displayed for the member on the renew form.');
     $this->assertNoFieldByName('uid[0][value]', $member->name, 'The primary member field cannot be edited by a member on the renew form.');
@@ -411,7 +411,7 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
     $this->assertFieldByName('membership_term[term]', NULL, 'The renewal term field is displayed for a member on the renew form.');
 
     // Submit the renewal.
-    $this->drupalPost($renew_path, array('membership_term[term]' => '3 years'), 'Renew');
+    $this->backdropPost($renew_path, array('membership_term[term]' => '3 years'), 'Renew');
     $this->assertText('The membership has been renewed.', 'Membership renewed by member.');
     $terms = membership_entity_term_load_by_membership($membership);
     $this->assertEqual(count($terms), 2, 'Renewal term found in the database.');
@@ -445,7 +445,7 @@ class MembershipEntityTermAccessTestCase extends MembershipEntityTermWebTestCase
     parent::setUp();
     // Clear permissions for authenticated users.
     db_delete('role_permission')
-      ->condition('rid', DRUPAL_AUTHENTICATED_RID)
+      ->condition('rid', BACKDROP_AUTHENTICATED_ROLE)
       ->execute();
   }
 
@@ -464,7 +464,7 @@ class MembershipEntityTermAccessTestCase extends MembershipEntityTermWebTestCase
    */
   public function testMembershipEntityTermAccess() {
     // User with 'administer membership terms' permission can do everything.
-    $admin = $this->drupalCreateUser(array('administer membership terms'));
+    $admin = $this->backdropCreateUser(array('administer membership terms'));
     $membership1 = $this->createMembership(array('uid' => $admin->uid));
     $term1 = $this->createMembershipTerm(array(
       'mid' => $membership1->mid,
@@ -475,8 +475,8 @@ class MembershipEntityTermAccessTestCase extends MembershipEntityTermWebTestCase
 
     // Member can renew own membership but not any membership.
     $permissions = array('membership renew own membership');
-    $member1 = $this->drupalCreateUser($permissions);
-    $member2 = $this->drupalCreateUser($permissions);
+    $member1 = $this->backdropCreateUser($permissions);
+    $member2 = $this->backdropCreateUser($permissions);
     $membership2 = $this->createMembership(array('uid' => $member1->uid));
     $this->createMembershipTerm(array(
       'mid' => $membership2->mid,

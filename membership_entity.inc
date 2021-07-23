@@ -126,7 +126,7 @@ class MembershipEntity extends Entity {
    */
   public function uri() {
 
-}
+  }
 
   /**
    * Returns the primary member.
@@ -154,7 +154,7 @@ class MembershipEntity extends Entity {
   }
 
   /**
-   * Returns the Drupal path to the membership.
+   * Returns the Backdrop path to the membership.
    */
   public function path() {
     $uri = $this->uri();

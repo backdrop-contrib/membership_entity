@@ -152,7 +152,7 @@ class MembershipEntityTerm extends Entity {
   }
 
   /**
-   * Returns the Drupal path to the membership term.
+   * Returns the Backdrop path to the membership term.
    */
   public function path() {
     $uri = $this->uri();
@@ -201,7 +201,7 @@ class MembershipEntityTerm extends Entity {
     }
 
     // Allow other modules to override the end date.
-    drupal_alter('membership_entity_term_end_date', $end, $this);
+    backdrop_alter('membership_entity_term_end_date', $end, $this);
 
     $this->end = date_format_date($end, 'custom', DATE_FORMAT_DATETIME);
   }

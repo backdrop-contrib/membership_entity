@@ -25,7 +25,7 @@ function template_preprocess_membership_entity(&$variables) {
   field_attach_preprocess('membership_entity', $membership, $variables['content'], $variables);
 
   // Add some classes.
-  $variables['classes_array'][] = drupal_html_class('membership', 'membership-type-' . $membership->type);
+  $variables['classes_array'][] = backdrop_html_class('membership', 'membership-type-' . $membership->type);
   switch ($membership->status) {
     case MEMBERSHIP_ENTITY_EXPIRED:
       $variables['classes_array'][] = 'membership-expired';

@@ -10,7 +10,7 @@
  */
 function membership_entity_settings_form($form, &$form_state, $data = array()) {
   $form['#attached'] = array(
-    'css' => array(drupal_get_path('module', 'membership_entity') . '/css/membership_entity_admin.css'),
+    'css' => array(backdrop_get_path('module', 'membership_entity') . '/css/membership_entity_admin.css'),
   );
 
   if (empty($data)) {
@@ -152,7 +152,7 @@ function membership_entity_settings_form($form, &$form_state, $data = array()) {
   );
 
   // Allow other modules to add settings to the form.
-  drupal_alter('membership_entity_settings', $form, $form_state, $data);
+  backdrop_alter('membership_entity_settings', $form, $form_state, $data);
   return $form;
 }
 
@@ -213,15 +213,15 @@ function membership_entity_settings_form_submit($form, &$form_state) {
   // Remove extra fields and save the values.
   form_state_values_clean($form_state);
   variable_set('membership_entity_settings', $form_state['values']);
-  drupal_set_message(t('The configuration options have been saved'));
+  backdrop_set_message(t('The configuration options have been saved'));
 }
 
 /**
  * Menu callback: Edit a membership.
  */
 function membership_entity_edit($membership) {
-  drupal_set_title(t('Edit membership: @id', array('@id' => $membership->member_id)));
-  return drupal_get_form('membership_entity_edit_form', $membership);
+  backdrop_set_title(t('Edit membership: @id', array('@id' => $membership->member_id)));
+  return backdrop_get_form('membership_entity_edit_form', $membership);
 }
 
 /**
@@ -244,7 +244,7 @@ function membership_entity_edit_form($form, &$form_state, $membership = NULL, $t
   $form['#membership_entity'] = $membership;
   $form['#bundle_settings'] = membership_entity_get_bundle_settings($membership->type);
   if (empty($form['#bundle_settings']['status'])) {
-    drupal_set_message(t('Missing configuration settings for membership type %type. Please visit the <a href="!url">settings page</a> to configure the membership type.', array(
+    backdrop_set_message(t('Missing configuration settings for membership type %type. Please visit the <a href="!url">settings page</a> to configure the membership type.', array(
       '%type' => $membership->type,
       '!url' => url("admin/memberships/types/manage/$membership->type"),
     )), 'error');
@@ -328,7 +328,7 @@ function membership_entity_join_form($form, &$form_state, $bundle = 'membership'
 
   // Add the registration form for anonymous users.
   if (!user_is_logged_in()) {
-    $form['#user'] = drupal_anonymous_user();
+    $form['#user'] = backdrop_anonymous_user();
 
     $form['user'] = array(
       '#type' => 'container',
@@ -353,7 +353,7 @@ function membership_entity_join_form($form, &$form_state, $bundle = 'membership'
       '#prefix' => '<p>',
       '#suffix' => '</p>',
       '#markup' => t('Click <a href="@url">here to log in</a> if you already have an account.', array(
-        '@url' => url('user/login', array('query' => drupal_get_destination())),
+        '@url' => url('user/login', array('query' => backdrop_get_destination())),
       )),
       '#weight' => -9999,
     );
@@ -415,7 +415,7 @@ function membership_entity_form(&$form, &$form_state) {
 
   if (!empty($membership->member_id)) {
     if (user_access('administer memberships')) {
-      $schema = drupal_get_schema('membership_entity');
+      $schema = backdrop_get_schema('membership_entity');
       $form['membership']['member_id'] = array(
         '#type' => 'textfield',
         '#title' => t('Membership ID'),
@@ -469,7 +469,7 @@ function membership_entity_form(&$form, &$form_state) {
   field_attach_form('membership_entity', $membership, $form, $form_state);
 
   // Allow other modules to alter the form.
-  drupal_alter('membership_entity_form', $form, $form_state, $membership);
+  backdrop_alter('membership_entity_form', $form, $form_state, $membership);
 }
 
 /**
@@ -553,7 +553,7 @@ function membership_entity_user_join_register_submit($form, &$form_state) {
 
   // Terminate if an error occurred during user_save().
   if (!$account) {
-    drupal_set_message(t('Error saving user account.'), 'error');
+    backdrop_set_message(t('Error saving user account.'), 'error');
     $form_state['redirect'] = '';
     return;
   }
@@ -571,18 +571,18 @@ function membership_entity_user_join_register_submit($form, &$form_state) {
     _user_mail_notify('register_no_approval_required', $account);
     $form_state['uid'] = $account->uid;
     user_login_submit(array(), $form_state);
-    drupal_set_message(t('Registration successful. You are now logged in.'));
+    backdrop_set_message(t('Registration successful. You are now logged in.'));
     $form_state['redirect'] = '';
   }
   // No administrator approval required.
   elseif ($account->status) {
     _user_mail_notify('register_no_approval_required', $account);
-    drupal_set_message(t('A welcome message with further instructions has been sent to your e-mail address.'));
+    backdrop_set_message(t('A welcome message with further instructions has been sent to your e-mail address.'));
     $form_state['redirect'] = '';
   }
   else {
     _user_mail_notify('register_pending_approval', $account);
-    drupal_set_message(t('Thank you for applying for an account. Your account is currently pending approval by the site administrator.<br />In the meantime, a welcome message with further instructions has been sent to your e-mail address.'));
+    backdrop_set_message(t('Thank you for applying for an account. Your account is currently pending approval by the site administrator.<br />In the meantime, a welcome message with further instructions has been sent to your e-mail address.'));
     $form_state['redirect'] = '';
   }
 }
@@ -608,17 +608,17 @@ function membership_entity_edit_form_submit($form, &$form_state) {
   switch ($status) {
     case SAVED_NEW:
       if (user_access('administer memberships')) {
-        drupal_set_message(t('Membership %member_id has been created.', $t_args));
+        backdrop_set_message(t('Membership %member_id has been created.', $t_args));
         $form_state['redirect'] = 'membership/' . $membership->mid;
       }
       elseif (user_is_logged_in()) {
-        drupal_set_message(t('Your membership has been created.'));
+        backdrop_set_message(t('Your membership has been created.'));
         $form_state['redirect'] = 'user';
       }
       break;
 
     case SAVED_UPDATED:
-      drupal_set_message(t('Membership %member_id has been updated.', $t_args));
+      backdrop_set_message(t('Membership %member_id has been updated.', $t_args));
       $form_state['redirect'] = 'membership/' . $membership->mid;
       break;
   }
@@ -630,7 +630,7 @@ function membership_entity_edit_form_submit($form, &$form_state) {
 function membership_entity_edit_form_delete($form, &$form_state) {
   $destination = array();
   if (isset($_GET['destination'])) {
-    $destination = drupal_get_destination();
+    $destination = backdrop_get_destination();
     unset($_GET['destination']);
   }
   $membership = $form['#membership_entity'];
@@ -668,7 +668,7 @@ function membership_entity_multiple_delete_confirm_submit($form, &$form_state) {
   if ($form_state['values']['confirm']) {
     membership_entity_delete_multiple(array_keys($memberships));
     $count = count($memberships);
-    drupal_set_message(format_plural($count, 'Deleted 1 membership.', 'Deleted @count memberships.'));
+    backdrop_set_message(format_plural($count, 'Deleted 1 membership.', 'Deleted @count memberships.'));
   }
   $form_state['redirect'] = 'admin/memberships';
 }
@@ -684,7 +684,7 @@ function membership_entity_multiple_delete_confirm_submit($form, &$form_state) {
 function membership_entity_modal_register($js = NULL, $return_id = NULL) {
   // Fall back if parameters are not set.
   if (!$js || !$return_id) {
-    return drupal_get_form('user_register_form');
+    return backdrop_get_form('user_register_form');
   }
 
   ctools_include('modal');
@@ -700,7 +700,7 @@ function membership_entity_modal_register($js = NULL, $return_id = NULL) {
     $output = $form_state['ajax_commands'];
   }
   print ajax_render($output);
-  drupal_exit();
+  backdrop_exit();
 }
 
 /**
@@ -723,7 +723,7 @@ function membership_entity_modal_user_register_form($form, &$form_state) {
     '#value' => $admin,
   );
 
-  $form['#user'] = drupal_anonymous_user();
+  $form['#user'] = backdrop_anonymous_user();
   $form['#user_category'] = 'register';
 
   $form['#attached']['library'][] = array('system', 'jquery.cookie');
@@ -784,7 +784,7 @@ function membership_entity_modal_user_register_form_submit($form, &$form_state) 
 
   // Terminate if an error occurred during user_save().
   if (!$account) {
-    drupal_set_message(t("Error saving user account."), 'error');
+    backdrop_set_message(t("Error saving user account."), 'error');
     $form_state['redirect'] = '';
     return;
   }
@@ -799,7 +799,7 @@ function membership_entity_modal_user_register_form_submit($form, &$form_state) 
   $account->password = $pass;
   $uri = entity_uri('user', $account);
   if ($admin && !$notify) {
-    drupal_set_message(t('Created a new user account for <a href="@url">%name</a>. No e-mail has been sent.', array(
+    backdrop_set_message(t('Created a new user account for <a href="@url">%name</a>. No e-mail has been sent.', array(
       '@url' => url($uri['path'], $uri['options']),
       '%name' => $account->name,
     )));
@@ -807,27 +807,27 @@ function membership_entity_modal_user_register_form_submit($form, &$form_state) 
   elseif (!$admin && !variable_get('user_email_verification', TRUE) && $account->status) {
     _user_mail_notify('register_no_approval_required', $account);
     $form_state['uid'] = $account->uid;
-    drupal_set_message(t('Account created.'));
+    backdrop_set_message(t('Account created.'));
     $form_state['redirect'] = '';
   }
   elseif ($account->status || $notify) {
     $op = $notify ? 'register_admin_created' : 'register_no_approval_required';
     _user_mail_notify($op, $account);
     if ($notify) {
-      drupal_set_message(t('A welcome message with further instructions has been e-mailed to the new user <a href="@url">%name</a>.', array(
+      backdrop_set_message(t('A welcome message with further instructions has been e-mailed to the new user <a href="@url">%name</a>.', array(
         '@url' => url($uri['path'], $uri['options']),
         '%name' => $account->name,
       )));
     }
     else {
-      drupal_set_message(t('A welcome message with further instructions has been sent to your e-mail address.'));
+      backdrop_set_message(t('A welcome message with further instructions has been sent to your e-mail address.'));
       $form_state['redirect'] = '';
     }
   }
   // Administrator approval required.
   else {
     _user_mail_notify('register_pending_approval', $account);
-    drupal_set_message(t('Thank you for applying for an account. Your account is currently pending approval by the site administrator.<br />In the meantime, a welcome message with further instructions has been sent to your e-mail address.'));
+    backdrop_set_message(t('Thank you for applying for an account. Your account is currently pending approval by the site administrator.<br />In the meantime, a welcome message with further instructions has been sent to your e-mail address.'));
     $form_state['redirect'] = '';
   }
 

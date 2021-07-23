@@ -95,7 +95,7 @@ class views_handler_field_membership_link extends views_handler_field_entity { /
       $this->options['alter']['path'] = $uri['path'];
       if ($this->op != 'view') {
         $this->options['alter']['path'] .= "/$this->op";
-        $this->options['alter']['query'] = drupal_get_destination();
+        $this->options['alter']['query'] = backdrop_get_destination();
       }
       $text = !empty($this->options['text']) ? $this->options['text'] : $this->op;
       return $text;

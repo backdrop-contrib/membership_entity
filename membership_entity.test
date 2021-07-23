@@ -8,7 +8,7 @@
 /**
  * Defines a base class for testing the Membership Entity module.
  */
-class MembershipEntityWebTestCase extends DrupalWebTestCase {
+class MembershipEntityWebTestCase extends BackdropWebTestCase {
   protected $memberRole;
   protected $secondaryRole;
 
@@ -29,8 +29,8 @@ class MembershipEntityWebTestCase extends DrupalWebTestCase {
     parent::setUp($modules);
 
     // Create membership roles.
-    $this->memberRole = $this->drupalCreateRole(array(), 'Member');
-    $this->secondaryRole = $this->drupalCreateRole(array(), 'Secondary Member');
+    $this->memberRole = $this->backdropCreateRole(array(), 'Member');
+    $this->secondaryRole = $this->backdropCreateRole(array(), 'Secondary Member');
 
     // Add default membership settings.
     variable_set('membership_entity_settings', array(
@@ -87,11 +87,11 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
   protected function setup() {
     parent::setUp();
     // Create member account.
-    $this->member = $this->drupalCreateUser(array('membership join'));
+    $this->member = $this->backdropCreateUser(array('membership join'));
 
     // Create and login user.
-    $this->admin = $this->drupalCreateUser(array('administer memberships'));
-    $this->drupalLogin($this->admin);
+    $this->admin = $this->backdropCreateUser(array('administer memberships'));
+    $this->backdropLogin($this->admin);
   }
 
   /**
@@ -117,7 +117,7 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
       'uid[0][value]' => $this->member->name,
       'status' => MEMBERSHIP_ENTITY_ACTIVE,
     );
-    $this->drupalPost('admin/memberships/add', $edit, 'Save');
+    $this->backdropPost('admin/memberships/add', $edit, 'Save');
     $this->assertText('Membership 00001 has been created.', 'Simple membership created by admin.');
 
     $member = user_load($this->member->uid);
@@ -142,8 +142,8 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
     variable_set('membership_entity_settings', $settings);
 
     // Create secondary member accounts.
-    $secondary1 = $this->drupalCreateUser();
-    $secondary2 = $this->drupalCreateUser();
+    $secondary1 = $this->backdropCreateUser();
+    $secondary2 = $this->backdropCreateUser();
 
     $edit = array(
       'uid[0][value]' => $this->member->name,
@@ -151,7 +151,7 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
       'secondary_members[1][value]' => $secondary2->name,
       'status' => MEMBERSHIP_ENTITY_ACTIVE,
     );
-    $this->drupalPost('admin/memberships/add', $edit, 'Save');
+    $this->backdropPost('admin/memberships/add', $edit, 'Save');
     $this->assertText('Membership 00001 has been created.', 'Simple membership created by admin.');
 
     $member = user_load($this->member->uid);
@@ -231,7 +231,7 @@ class MembershipEntityJoinTestCase extends MembershipEntityWebTestCase {
       'user[pass][pass1]' => 'password',
       'user[pass][pass2]' => 'password',
     );
-    $this->drupalPost('user/join', $edit, 'Join');
+    $this->backdropPost('user/join', $edit, 'Join');
     $this->assertText('Registration successful. You are now logged in.', 'Registration completed for anonymous user from join form.');
     $this->assertText('Your membership has been created.', 'Membership created for anonymous user from the join form.');
 
@@ -246,10 +246,10 @@ class MembershipEntityJoinTestCase extends MembershipEntityWebTestCase {
    * Test join as an authenticated user.
    */
   public function testJoinAsAuthenticatedUser() {
-    $member = $this->drupalCreateUser(array('membership join'));
-    $this->drupalLogin($member);
+    $member = $this->backdropCreateUser(array('membership join'));
+    $this->backdropLogin($member);
 
-    $this->drupalPost('user/join', array(), 'Join');
+    $this->backdropPost('user/join', array(), 'Join');
     $this->assertText('Your membership has been created.', 'Membership created for authenticated user from the join form.');
 
     $member = user_load($member->uid);
@@ -287,9 +287,9 @@ class MembershipEntityEditTestCase extends MembershipEntityWebTestCase {
     parent::setUp();
 
     // Create some users.
-    $this->admin = $this->drupalCreateUser(array('administer memberships'));
-    $this->member = $this->drupalCreateUser(array('membership join'));
-    $this->secondaryMember = $this->drupalCreateUser(array('membership join'));
+    $this->admin = $this->backdropCreateUser(array('administer memberships'));
+    $this->member = $this->backdropCreateUser(array('membership join'));
+    $this->secondaryMember = $this->backdropCreateUser(array('membership join'));
 
     // Grant view and edit permissions for member roles.
     foreach (array('Member', 'Secondary Member') as $role_name) {
@@ -306,13 +306,13 @@ class MembershipEntityEditTestCase extends MembershipEntityWebTestCase {
    * Test editing a membership as an administrator.
    */
   public function testMembershipEditAsAdmin() {
-    $this->drupalLogin($this->admin);
+    $this->backdropLogin($this->admin);
 
     // Create a membership.
     $membership = $this->createMembership(array('uid' => $this->member->uid));
     $edit_path = "membership/$membership->mid/edit";
-    $this->drupalGet($edit_path);
-    $this->assertTitle(format_string('Edit membership: @id | Drupal', array('@id' => $membership->member_id)), 'Membership edit form displayed.');
+    $this->backdropGet($edit_path);
+    $this->assertTitle(format_string('Edit membership: @id | Backdrop', array('@id' => $membership->member_id)), 'Membership edit form displayed.');
     $this->assertFieldByName('member_id', $membership->member_id, 'The member id field is displayed on the edit form.');
     $this->assertFieldByName('uid[0][value]', $this->member->name, 'The primary member field is displayed on the edit form');
     $this->assertFieldByName('status', $membership->status, 'The membership status field is displayed on the edit form.');
@@ -323,7 +323,7 @@ class MembershipEntityEditTestCase extends MembershipEntityWebTestCase {
       'member_id' => $new_member_id,
       'status' => MEMBERSHIP_ENTITY_CANCELLED,
     );
-    $this->drupalPost($edit_path, $edit, 'Save');
+    $this->backdropPost($edit_path, $edit, 'Save');
     $this->assertText(format_string('Membership @id has been updated.', array('@id' => $new_member_id)), 'Membership updated by admin from the edit form.');
     $this->assertText(format_string('Membership @id (Cancelled)', array('@id' => $new_member_id)), 'Membership status saved from edit form.');
   }
@@ -332,20 +332,20 @@ class MembershipEntityEditTestCase extends MembershipEntityWebTestCase {
    * Test editing a membership as a member.
    */
   public function testMembershipEditAsMember() {
-    $this->drupalLogin($this->member);
+    $this->backdropLogin($this->member);
 
     // Create a membership.
     $membership = $this->createMembership(array('uid' => $this->member->uid));
     $edit_path = "membership/$membership->mid/edit";
-    $this->drupalGet($edit_path);
-    $this->assertTitle(format_string('Edit membership: @id | Drupal', array('@id' => $membership->member_id)), 'Membership edit form displayed.');
+    $this->backdropGet($edit_path);
+    $this->assertTitle(format_string('Edit membership: @id | Backdrop', array('@id' => $membership->member_id)), 'Membership edit form displayed.');
     $this->assertNoFieldByName('member_id', $membership->member_id, 'The member id cannot be edited by a member.');
     $this->assertText('Unique membership id: ' . $membership->member_id, 'The member id is displayed for the member on the edit form.');
     $this->assertNoFieldByName('uid[0][value]', $this->member->name, 'The primary member field cannot be edited by a member.');
     $this->assertNoFieldByName('status', $membership->status, 'The membership status field cannot be edited by a member.');
 
     // Submit the form.
-    $this->drupalPost($edit_path, array(), 'Save');
+    $this->backdropPost($edit_path, array(), 'Save');
     $this->assertText(format_string('Membership @id has been updated.', array('@id' => $membership->member_id)), 'Membership updated by member from the edit form.');
   }
 
@@ -374,7 +374,7 @@ class MembershipEntityAccessTestCase extends MembershipEntityWebTestCase {
     parent::setUp();
     // Clear permissions for authenticated users.
     db_delete('role_permission')
-      ->condition('rid', DRUPAL_AUTHENTICATED_RID)
+      ->condition('rid', BACKDROP_AUTHENTICATED_ROLE)
       ->execute();
   }
 
@@ -393,11 +393,11 @@ class MembershipEntityAccessTestCase extends MembershipEntityWebTestCase {
    */
   public function testMembershipEntityAccess() {
     // User without 'membership join' permission cannot access the join page.
-    $user1 = $this->drupalCreateUser();
+    $user1 = $this->backdropCreateUser();
     $this->assertMembershipEntityAccess(array('join' => FALSE), 'membership', $user1);
 
     // User with 'administer memberships' permission can do everything.
-    $admin = $this->drupalCreateUser(array('administer memberships'));
+    $admin = $this->backdropCreateUser(array('administer memberships'));
     $this->assertMembershipEntityAccess(array('join' => TRUE), 'membership', $admin);
     $membership1 = $this->createMembership(array('uid' => $user1->uid));
     $this->assertMembershipEntityAccess(array(
@@ -413,8 +413,8 @@ class MembershipEntityAccessTestCase extends MembershipEntityWebTestCase {
       'membership edit own membership',
       'membership delete own membership',
     );
-    $member1 = $this->drupalCreateUser($permissions);
-    $member2 = $this->drupalCreateUser($permissions);
+    $member1 = $this->backdropCreateUser($permissions);
+    $member2 = $this->backdropCreateUser($permissions);
     $membership2 = $this->createMembership(array('uid' => $member1->uid));
     $membership3 = $this->createMembership(array('uid' => $member2->uid));
     $this->assertMembershipEntityAccess(array(
@@ -429,8 +429,8 @@ class MembershipEntityAccessTestCase extends MembershipEntityWebTestCase {
     ), $membership3, $member1);
 
     // Secondary member can view but not edit own membership by default.
-    $member2 = $this->drupalCreateUser($permissions);
-    $secondary_member = $this->drupalCreateUser($permissions);
+    $member2 = $this->backdropCreateUser($permissions);
+    $secondary_member = $this->backdropCreateUser($permissions);
     $membership4 = $this->createMembership(array(
       'uid' => $member2->uid,
       'secondary_members' => array($secondary_member->uid),

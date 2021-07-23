@@ -141,7 +141,7 @@ function membership_entity_term_cron() {
     ->fetchAllAssoc('id');
 
   // Queue them up for expiration.
-  $queue = DrupalQueue::get('membership_entity_term_expire');
+  $queue = BackdropQueue::get('membership_entity_term_expire');
   foreach (array_keys($result) as $id) {
     $queue->createItem($id);
   }
@@ -151,7 +151,7 @@ function membership_entity_term_cron() {
     ->fetchAllAssoc('mid');
 
   // Queue them up for activation.
-  $queue = DrupalQueue::get('membership_entity_term_activate');
+  $queue = BackdropQueue::get('membership_entity_term_activate');
   foreach (array_keys($result) as $mid) {
     $queue->createItem($mid);
   }
@@ -290,7 +290,7 @@ function membership_entity_term_menu() {
 
   $items['membership/%membership_entity/term/%membership_entity_term'] = array(
     'title' => 'Edit Term',
-    'page callback' => 'drupal_get_form',
+    'page callback' => 'backdrop_get_form',
     'page arguments' => array('membership_entity_term_edit', 1, 3),
     'access callback' => 'membership_entity_term_access',
     'access arguments' => array('edit', 3),
@@ -306,7 +306,7 @@ function membership_entity_term_menu() {
 
   $items['membership/%membership_entity/term/%membership_entity_term/delete'] = array(
     'title' => 'Delete',
-    'page callback' => 'drupal_get_form',
+    'page callback' => 'backdrop_get_form',
     'page arguments' => array('membership_entity_term_delete_confirm', 1, 3),
     'access callback' => 'membership_entity_term_access',
     'access arguments' => array('delete', 3),
@@ -318,7 +318,7 @@ function membership_entity_term_menu() {
 
   $items['membership/%membership_entity/renew'] = array(
     'title' => 'Renew',
-    'page callback' => 'drupal_get_form',
+    'page callback' => 'backdrop_get_form',
     'page arguments' => array('membership_entity_term_renew', 1),
     'access callback' => 'membership_entity_term_access',
     'access arguments' => array('renew', 1),
@@ -657,7 +657,7 @@ function membership_entity_term_form_field_ui_field_edit_form_alter(&$form, &$fo
           'enabled' => array('input[name="instance[required]"]' => array('checked' => FALSE)),
         ),
         '#attached' => array(
-          'js' => array(drupal_get_path('module', 'membership_entity_term') . '/js/membership-entity-term.js'),
+          'js' => array(backdrop_get_path('module', 'membership_entity_term') . '/js/membership-entity-term.js'),
         ),
       );
 
@@ -685,7 +685,7 @@ function membership_entity_term_form_field_ui_field_edit_form_submit($form, &$fo
 function membership_entity_term_views_api() {
   return array(
     'api' => 3,
-    'path' => drupal_get_path('module', 'membership_entity_term') . '/views',
+    'path' => backdrop_get_path('module', 'membership_entity_term') . '/views',
   );
 }
 
@@ -695,7 +695,7 @@ function membership_entity_term_views_api() {
 function membership_entity_term_preprocess_views_view(&$vars) {
   $view = $vars['view'];
   if ($view->name == 'membership_entity_terms') {
-    drupal_add_css(drupal_get_path('module', 'membership_entity_term') . '/css/membership_entity_term.css');
+    backdrop_add_css(backdrop_get_path('module', 'membership_entity_term') . '/css/membership_entity_term.css');
   }
 }
 
@@ -1003,14 +1003,14 @@ function theme_membership_entity_term_available_term_lengths_element($variables)
           // We use #type => value instead of markup so that term_length will
           // be included in $form_state['values'].
           array('data' => $item['term_length']['#value']),
-          array('data' => drupal_render($item['example'])),
-          array('data' => drupal_render($item['remove'])),
-          array('data' => drupal_render($item['weight']), 'class' => array('term-weight')),
+          array('data' => backdrop_render($item['example'])),
+          array('data' => backdrop_render($item['remove'])),
+          array('data' => backdrop_render($item['weight']), 'class' => array('term-weight')),
         ),
         'class' => array('draggable'),
       );
     }
-    drupal_add_tabledrag($table_id, 'order', 'sibling', $order_class);
+    backdrop_add_tabledrag($table_id, 'order', 'sibling', $order_class);
   }
   else {
     $rows[]['data'] = array(
@@ -1046,7 +1046,7 @@ function theme_membership_entity_term_modifiers_element($variables) {
           // We use #type => value instead of markup so that the modifier will
           // be included in $form_state['values'].
           array('data' => $element[$key]['value']['#value']),
-          array('data' => drupal_render($element[$key]['remove'])),
+          array('data' => backdrop_render($element[$key]['remove'])),
         ),
       );
     }
@@ -1071,7 +1071,7 @@ function theme_membership_entity_term_modifiers_element($variables) {
  * Returns HTML for a list of term modifiers.
  */
 function theme_membership_entity_term_modifiers($variables) {
-  drupal_add_css(drupal_get_path('module', 'membership_entity_term') . '/membership_entity_term.css');
+  backdrop_add_css(backdrop_get_path('module', 'membership_entity_term') . '/membership_entity_term.css');
   $modifiers = $variables['modifiers'];
   $output = '<div class="membership-entity-term-modifiers">';
   $output .= implode('<br />', array_map('check_plain', $modifiers));
