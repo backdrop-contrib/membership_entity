@@ -7,7 +7,10 @@ CONTENTS OF THIS FILE
 
 INTRODUCTION
 ------------
-Current Maintainer: draenen (Caleb Thorne)
+This module has been converted from Drupal 7.x to Backdrop 1.x
+by jayelless (James Scott).
+
+Drupal 7 Maintainer: draenen (Caleb Thorne)
 Sponsored in part by:
   * Monarch Digital (www.monarchdigital.com)
   * The North American Rock Garden Society (www.nargs.org)
@@ -30,11 +33,9 @@ INSTALLATION
 ------------
 
 1. Download and install the following dependencies.
-  * Entity API - http://drupal.org/project/entity
-  * Ctools - http://drupal.org/project/ctools
-  * Views - http://drupal.org/project/views
-  * Rules - http://drupal.org/project/rules
-  * Date (for membership terms)- http://drupal.org/project/date
+  * Entity Plus - https://backdropcms.org/project/entity_plus
+  * Entity UI - https://backdropcms.org/project/entity_ui
+  * Rules - https://backdropcms.org/project/rules
 
 2. Enable the module(s).
   * Membership Entity provides the core membership features
@@ -59,7 +60,7 @@ primary and secondary member roles may be set on per membership type basis.
 CONTRIBUTIONS AND FEATURE REQUESTS
 ----------------------------------
 Issues and feature requests should be reported at
-https://drupal.org/project/issues/1875930.
+https://backdropcms.org/project/membership_entity.
 
 Issues will be reviewed as quickly as is reasonable with the understanding that
 the maintainers have personal and professional responsibilities outside of this
@@ -68,3 +69,9 @@ module.
 Feature requests will generally only be developed as the need arises for
 paying clients. However, if you write a feature and submit a patch it will
 gladly be considered for inclusion in the module.
+
+License
+-------
+
+This project is GPL v2 software.
+See the LICENSE.txt file in this directory for complete text.
