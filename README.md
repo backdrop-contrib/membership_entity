@@ -7,8 +7,10 @@ CONTENTS OF THIS FILE
 
 INTRODUCTION
 ------------
+Backdrop 1.x Maintainer: jayelless (James Scott).
+
 This module has been converted from Drupal 7.x to Backdrop 1.x
-by jayelless (James Scott).
+by jayelless (James Scott) in July 2021.
 
 Drupal 7 Maintainer: draenen (Caleb Thorne)
 Sponsored in part by:
