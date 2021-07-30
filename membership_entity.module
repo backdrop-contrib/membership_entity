@@ -13,9 +13,6 @@ define('MEMBERSHIP_ENTITY_ACTIVE', 1);
 define('MEMBERSHIP_ENTITY_CANCELLED', 2);
 define('MEMBERSHIP_ENTITY_PENDING', 3);
 
-// Includes
-require_once dirname(__FILE__) . '/membership_entity.ctools.inc';
-
 /**
  * Retrieve a list of membership status options.
  */
@@ -900,7 +897,7 @@ function _membership_entity_member_id_get_instance($id, $settings = array()) {
 
   if (!isset($instances[$id])) {
     $plugin = membership_entity_get_member_id($id);
-    $class = ctools_plugin_get_class($plugin, 'class');
+    $class = membership_entity_get_plugin_class($plugin, 'class');
     $class = class_exists($class) ? $class : 'MembershipEntityMemberIdBroken';
     $instances[$id] = new $class($settings);
 
@@ -911,6 +908,34 @@ function _membership_entity_member_id_get_instance($id, $settings = array()) {
   }
 
   return $instances[$id];
+}
+
+/**
+ * Get a class from a plugin, if it exists.
+ *
+ * @param $plugin_definition
+ *   The loaded plugin type.
+ * @param $class_name
+ *   The identifier of the class. For example, 'handler'.
+ *
+ * @return string
+ *   The actual name of the class to call, or NULL if the class does not exist.
+ */
+function membership_entity_get_plugin_class($plugin_definition, $class_name) {
+
+  $return = FALSE;
+  if (isset($plugin_definition[$class_name])) {
+    if (is_string($plugin_definition[$class_name])) {
+      // Plugin uses the string form shorthand.
+      $return = $plugin_definition[$class_name];
+    }
+    elseif (isset($plugin_definition[$class_name]['class'])) {
+      // Plugin uses the verbose array form.
+      $return = $plugin_definition[$class_name]['class'];
+    }
+  }
+
+  return ($return && class_exists($return)) ? $return : NULL;
 }
 
 /**
