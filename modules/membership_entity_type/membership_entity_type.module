@@ -21,13 +21,6 @@ function membership_entity_type_autoload_info() {
 }
 
 /**
- * Implements hook_help().
- */
-function membership_entity_type_help($path, $arg) {
-  // @TODO add help documentation
-}
-
-/**
  * Implements hook_entity_info().
  */
 function membership_entity_type_entity_info() {
