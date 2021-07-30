@@ -8,4 +8,5 @@ configure = admin/memberships/types/manage/membership
 
 dependencies[] = entity_plus
 dependencies[] = entity_ui
+dependencies[] = user
 dependencies[] = views

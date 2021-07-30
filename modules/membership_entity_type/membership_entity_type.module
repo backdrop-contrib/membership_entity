@@ -5,9 +5,6 @@
  * Allows users to create different types of memberships.
  */
 
-// Includes
-require_once dirname(__FILE__) . '/membership_entity_type.ui.inc'; // non class code in file
-
 /**
  * implements hook_autoload_info().
  *
@@ -494,11 +491,11 @@ function membership_entity_type_page_title(MembershipEntityType $type) {
 /**
  * Implements hook_forms().
  */
-function membership_entity_forms() {
+function membership_entity_type_forms() {
   $forms = array();
   if ($types = membership_entity_type_get_types()) {
     foreach ($types as $type) {
-      $forms[$type->type . '_membership_entity_edit_form']['callback'] = 'membership_entity_edit_form';
+      $forms[$type->type . '_membership_entity_type_edit_form']['callback'] = 'membership_entity_type_edit_form';
     }
   }
   return $forms;
