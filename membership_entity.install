@@ -145,8 +145,10 @@ function membership_entity_schema() {
  * Implements hook_uninstall().
  */
 function membership_entity_uninstall() {
-  // Clean up settings.
-  config_clear('membership_entity.settings', 'membership_entity_settings');
-  config_clear('membership_entity.settings', 'membership_entity_next_member_id');
-  config_clear('membership_entity.settings', 'membership_entity_user_register_required');
+  // Remove the module config settings.
+  $config = config('membership_entity.settings');
+  $config->delete();
+  // Remove the default membership entity view.
+  $config = config('views.view.membership_entity_memberships');
+  $config->delete();
 }
