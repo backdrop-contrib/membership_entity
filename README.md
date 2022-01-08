@@ -4,6 +4,10 @@ CONTENTS OF THIS FILE
   * Installation
   * Design Decisions
   * Contributions and feature requests
+  * Issues
+  * Current Maintainers
+  * Credits
+  * License
 
 INTRODUCTION
 ------------
@@ -11,12 +15,6 @@ Backdrop 1.x Maintainer: jayelless (James Scott).
 
 This module has been converted from Drupal 7.x to Backdrop 1.x
 by jayelless (James Scott) in July 2021.
-
-Drupal 7 Maintainer: draenen (Caleb Thorne)
-Sponsored in part by:
-  * Monarch Digital (www.monarchdigital.com)
-  * The North American Rock Garden Society (www.nargs.org)
-  * The Porsche Club of America (www.pca.org)
 
 The Membership Entity module provides a separation between memberships and
 individual user accounts. This provides several advantages for managing
@@ -72,6 +70,28 @@ module.
 Feature requests will generally only be developed as the need arises for
 paying clients. However, if you write a feature and submit a patch it will
 gladly be considered for inclusion in the module.
+
+Issues
+------
+
+Bugs and feature requests should be reported in [the Issue Queue](https://github.com/backdrop-contrib/membership_entity/issues).
+
+Current Maintainers
+-------------------
+
+- [Jayelless](https://github.com/jayelless).
+
+Credits
+-------
+
+Drupal module sponsored in part by:
+* Monarch Digital (www.monarchdigital.com)
+* The North American Rock Garden Society (www.nargs.org)
+* The Porsche Club of America (www.pca.org)
+
+- Ported to Backdrop CMS by [Jayelless](https://github.com/jayelless).
+- Current Drupal maintainer [Caleb Thorne](https://www.drupal.org/u/draenen).
+- Based on [Membership Entity](https://www.drupal.org/project/membership_entity).
 
 License
 -------
