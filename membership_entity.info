@@ -10,3 +10,6 @@ dependencies[] = entity_plus
 dependencies[] = entity_ui
 dependencies[] = user
 dependencies[] = views
+
+maintainers[albanycomputers] = 'Steve Moorhouse' 
+maintainers[jayelless] = 'James Scott'
