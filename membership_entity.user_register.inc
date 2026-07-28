@@ -64,12 +64,17 @@ function membership_entity_user_account_form_validate($form, &$form_state) {
   $values = &$form_state['values']['user'];
   $account = $form['#user'];
 
+  // The account is a not-yet-saved user entity, so its uid is NULL. Cast it,
+  // as core's user_account_form_validate() does: 'uid <> NULL' is never true in
+  // SQL, which would make both uniqueness checks below silently pass.
+  $uid = (int) $account->uid;
+
   // Validate username.
   if (isset($values['name'])) {
     if ($error = user_validate_name($values['name'])) {
       form_set_error('user][name', $error);
     }
-    elseif ((bool) db_select('users')->fields('users', array('uid'))->condition('uid', $account->uid, '<>')->condition('name', db_like($values['name']), 'LIKE')->range(0, 1)->execute()->fetchField()) {
+    elseif ((bool) db_select('users')->fields('users', array('uid'))->condition('uid', $uid, '<>')->condition('name', db_like($values['name']), 'LIKE')->range(0, 1)->execute()->fetchField()) {
       form_set_error('user][name', t('The name %name is already taken.', array('%name' => $values['name'])));
     }
   }
@@ -79,11 +84,15 @@ function membership_entity_user_account_form_validate($form, &$form_state) {
   $mail = trim($values['mail']);
   form_set_value($form['user']['account']['mail'], $mail, $form_state);
 
-  // Validate the e-mail address.
-  if ($error = user_validate_mail($values['mail'])) {
-    form_set_error('user][mail', $error);
+  // Validate the e-mail address. Backdrop has no user_validate_mail(); that was
+  // a Drupal 7 function, and valid_email_address() is the replacement.
+  if (empty($mail)) {
+    form_set_error('user][mail', t('You must enter an e-mail address.'));
   }
-  elseif ((bool) db_select('users')->fields('users', array('uid'))->condition('uid', $account->uid, '<>')->condition('mail', db_like($values['mail']), 'LIKE')->range(0, 1)->execute()->fetchField()) {
-    form_set_error('user][mail', t('The e-mail address %email is already registered. <a href="@password">Have you forgotten your password?</a>', array('%email' => $values['mail'], '@password' => url('user/password'))));
+  elseif (!valid_email_address($mail)) {
+    form_set_error('user][mail', t('The e-mail address %mail is not valid.', array('%mail' => $mail)));
+  }
+  elseif ((bool) db_select('users')->fields('users', array('uid'))->condition('uid', $uid, '<>')->condition('mail', db_like($mail), 'LIKE')->range(0, 1)->execute()->fetchField()) {
+    form_set_error('user][mail', t('The e-mail address %email is already registered. <a href="@password">Have you forgotten your password?</a>', array('%email' => $mail, '@password' => url('user/password'))));
   }
 }

@@ -328,7 +328,12 @@ function membership_entity_join_form($form, &$form_state, $bundle = 'membership'
 
   // Add the registration form for anonymous users.
   if (!user_is_logged_in()) {
-    $form['#user'] = backdrop_anonymous_user();
+    // Build an empty user entity to register into, exactly as core's
+    // user_register_form() does. backdrop_anonymous_user() returns an
+    // AnonymousUser, which core defines as "not an entity ... it cannot be
+    // saved to the database" and which has no save() method at all, so the
+    // submit handler could never have created an account from it.
+    $form['#user'] = entity_create('user', array());
 
     $form['user'] = array(
       '#type' => 'container',
@@ -363,9 +368,10 @@ function membership_entity_join_form($form, &$form_state, $bundle = 'membership'
     membership_entity_user_account_form($form, $form_state);
 
     // Attach field widgets, and hide the ones where the 'user_register_form'
-    // setting is not on.
-    $langcode = entity_language('user', $form['#user']);
-    field_attach_form('user', $form['#user'], $form['user'], $form_state, $langcode);
+    // setting is not on. No language argument: entity_language() is a Drupal 7
+    // Entity API function that Backdrop does not provide, and field_attach_form()
+    // resolves the language itself when none is given.
+    field_attach_form('user', $form['#user'], $form['user'], $form_state);
     foreach (field_info_instances('user', 'user') as $field_name => $instance) {
       if (empty($instance['settings']['user_register_form'])) {
         $form['user'][$field_name]['#access'] = FALSE;
@@ -546,13 +552,14 @@ function membership_entity_user_join_register_submit($form, &$form_state) {
   $account = $form['#user'];
   _membership_entity_form_submit_build_entity('user', $account, $form['user'], $form_state);
 
-  // Populate $edit with the properties of $account, which have been edited on
-  // this form by taking over all values, which appear in the form values too.
-  $edit = array_intersect_key((array) $account, $values);
-  $account = user_save($account, $edit);
+  // Backdrop's user_save() takes a single argument and simply calls
+  // $account->save(); the Drupal 7 $edit array has no equivalent and was being
+  // discarded. Save the entity directly and judge the outcome by its status,
+  // as core's user_register_submit() does.
+  $status = $account->save();
 
-  // Terminate if an error occurred during user_save().
-  if (!$account) {
+  // Terminate if an error occurred while saving the account.
+  if ($status != SAVED_NEW) {
     backdrop_set_message(t('Error saving user account.'), 'error');
     $form_state['redirect'] = '';
     return;
