@@ -60,11 +60,16 @@ function membership_entity_path_bulk_update_batch_process(&$context) {
     $context['sandbox']['count'] = 0;
     $context['sandbox']['current'] = 0;
   }
+  if (!isset($context['results']['total']['membership'])) {
+    $context['results']['total']['membership'] = 0;
+  }
 
   $query = db_select('membership_entity', 'me');
   $query->addField('me', 'mid');
   $query->condition('me.mid', $context['sandbox']['current'], '>');
-  $query->orderBy('mer.mid');
+  // The table is aliased 'me'; ordering by 'mer.mid' threw
+  // SQLSTATE[42S22] Unknown column 'mer.mid' and killed the batch outright.
+  $query->orderBy('me.mid');
   $query->addTag('path_bulk_update');
   $query->addMetaData('entity', 'membership_entity');
   if (!empty($context['choices'])) {
@@ -114,7 +119,20 @@ function membership_entity_path_bulk_update_batch_process(&$context) {
 
 }
 
-function membership_entity_path_delete($membership) {
+/**
+ * Removes the URL alias belonging to a membership.
+ *
+ * Deliberately not named membership_entity_path_delete(): core's path_delete()
+ * fires module_invoke_all('path_delete', $path), so that name made this an
+ * unwitting implementation of hook_path_delete(). It then ran on every URL
+ * alias deleted anywhere on the site, was handed the alias array rather than a
+ * membership, and tried to delete the alias whose source is literally
+ * 'membership/'.
+ *
+ * @param MembershipEntity $membership
+ *   The membership whose alias should be removed.
+ */
+function membership_entity_delete_alias($membership) {
 
   $query = db_delete('url_alias');
   $query->condition('source', "membership/{$membership->mid}");

@@ -397,7 +397,7 @@ function membership_entity_membership_entity_update($membership) {
 function membership_entity_membership_entity_delete($membership) {
   if (module_exists('path')) {
     module_load_include('inc', 'membership_entity', 'membership_entity.path');
-    membership_entity_path_delete($membership);
+    membership_entity_delete_alias($membership);
   }
 }
 
