@@ -806,10 +806,16 @@ function membership_entity_term_delete_confirm_submit($form, &$form_state) {
  * Page Callback: Show a generic renew page.
  */
 function membership_entity_term_renew_page($bundle = 'membership') {
+  // Order by mid descending and take the first, so a member who holds more
+  // than one membership of this type is offered the newest. The query was
+  // unordered and took current(), i.e. the lowest mid — which handed a lapsed
+  // member who had rejoined their dead membership to renew rather than the
+  // live one.
   $efq = new EntityFieldQuery();
   $result = $efq->entityCondition('entity_type', 'membership_entity')
     ->entityCondition('bundle', $bundle)
     ->propertyCondition('uid', $GLOBALS['user']->uid)
+    ->propertyOrderBy('mid', 'DESC')
     ->execute();
   $membership = !empty($result['membership_entity']) ? membership_entity_load(current(array_keys($result['membership_entity']))) : FALSE;
   if (!empty($membership)) {
