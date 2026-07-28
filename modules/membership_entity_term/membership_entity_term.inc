@@ -124,23 +124,31 @@ class MembershipEntityTerm extends Entity {
   /**
    * Returns the label of the entity.
    *
-   * @return
-   *   The label of the entity, or NULL if there is no label defined.
+   * Backdrop's entity_label() calls this method directly and ignores the
+   * 'label callback' declared in hook_entity_info(), so delegate to that
+   * callback here. There is no $label property on a term; reading one returned
+   * NULL and warned under PHP 8.
+   *
+   * @return string
+   *   The member id, term length and start date.
    */
   public function label() {
-    return $this->label;
+    return membership_entity_term_label($this, $this->entityType());
   }
 
   /**
    * Returns the URI elements of the entity.
    *
-   * @return
+   * Left unimplemented by the Backdrop port, while defaultUri() below was
+   * written and then never reached — see MembershipEntity::uri() for the same
+   * defect and why it matters.
+   *
+   * @return array
    *   An array containing the 'path' and 'options' keys used to build the URI
-   *   of the entity, and matching the signature of url(). NULL if the entity
-   *   has no URI of its own.
+   *   of the entity, and matching the signature of url().
    */
   public function uri() {
-
+    return $this->defaultUri();
   }
 
   /**
@@ -163,7 +171,10 @@ class MembershipEntityTerm extends Entity {
    * Overrides Entity::defaultUri().
    */
   public function defaultUri() {
-    return array('path' => "membership/$this->mid/term/$this->id");
+    return array(
+      'path' => "membership/$this->mid/term/$this->id",
+      'options' => array(),
+    );
   }
 
   /**

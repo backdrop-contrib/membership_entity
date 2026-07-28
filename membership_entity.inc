@@ -77,12 +77,15 @@ class MembershipEntity extends Entity {
   /**
    * Returns the entity identifier (the entity's machine name or numeric ID).
    *
-   * @return
-   *   The identifier of the entity, or NULL if the entity does not yet have
-   *   an identifier.
+   * Left unimplemented by the Backdrop port. Core's Entity::isNew() is
+   * '!empty($this->is_new) || !$this->id()', so a NULL identifier made every
+   * saved membership report itself as new for the rest of its life.
+   *
+   * @return int|null
+   *   The membership id, or NULL if the membership has not been saved.
    */
   public function id() {
-
+    return $this->mid;
   }
 
   /**
@@ -109,23 +112,32 @@ class MembershipEntity extends Entity {
   /**
    * Returns the label of the entity.
    *
-   * @return
-   *   The label of the entity, or NULL if there is no label defined.
+   * The member id, as hook_entity_info() declares in its 'entity keys'. There
+   * is no $label property on a membership; reading one returned NULL and
+   * warned under PHP 8.
+   *
+   * @return string
+   *   The unique member id.
    */
   public function label() {
-    return $this->label;
+    return $this->member_id;
   }
 
   /**
    * Returns the URI elements of the entity.
    *
-   * @return
+   * Left unimplemented by the Backdrop port, while defaultUri() below was
+   * written and then never reached. Backdrop's entity_uri() is simply
+   * 'return $entity->uri();' — there is no 'uri callback' indirection as there
+   * was in the Drupal 7 Entity API — so this returning NULL broke the links in
+   * the shipped Views and made path aliases save with an empty source.
+   *
+   * @return array
    *   An array containing the 'path' and 'options' keys used to build the URI
-   *   of the entity, and matching the signature of url(). NULL if the entity
-   *   has no URI of its own.
+   *   of the entity, and matching the signature of url().
    */
   public function uri() {
-
+    return $this->defaultUri();
   }
 
   /**
@@ -165,7 +177,10 @@ class MembershipEntity extends Entity {
    * Overrides Entity::defaultUri().
    */
   public function defaultUri() {
-    return array('path' => 'membership/' . $this->mid);
+    return array(
+      'path' => 'membership/' . $this->mid,
+      'options' => array(),
+    );
   }
 
   /**
