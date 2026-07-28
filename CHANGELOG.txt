@@ -1,3 +1,31 @@
+Membership Entity 1.x-1.0.2, unreleased
+---------------------------------------
+Six more Drupal 7 assumptions that Backdrop does not satisfy, found by walking
+the join, renewal and Views paths that 1.0.1 had not covered.
+Fixed the join form returning HTTP 500 for anonymous visitors — the module's
+                main public entry point. Three fatals in a row on that path:
+                entity_language() and user_validate_mail() do not exist in
+                Backdrop, and the new account was built with
+                backdrop_anonymous_user(), an AnonymousUser, which core defines
+                as unsaveable and which has no save() method. Also fixed
+                user_save() being called with the Drupal 7 $edit argument, which
+                Backdrop ignores, and the registration uniqueness checks
+                comparing against an uncast NULL uid so they never fired.
+Fixed MembershipEntity::id() and MembershipEntity/MembershipEntityTerm::uri()
+                being empty stubs while defaultUri() went unreached — the same
+                defect as issue #4 in the two classes it did not touch. Saved
+                memberships reported isNew() as TRUE forever, the shipped View's
+                links were broken, and path aliases saved with an empty source.
+                label() on both classes read a property that does not exist.
+Fixed the URL alias bulk update dying with "Unknown column 'mer.mid'".
+Fixed membership_entity_path_delete() unwittingly implementing hook_path_delete()
+                and running on every URL alias deleted anywhere on the site;
+                renamed to membership_entity_delete_alias().
+Fixed the generic renewal page offering the oldest of a member's memberships
+                rather than the current one.
+Fixed deleting a user leaving their membership orphaned, by no longer saving a
+                user account from inside hook_user_delete().
+
 Membership Entity 1.x-1.0.1, 2026-07-28
 ---------------------------------------
 Three Drupal 7 assumptions that Backdrop does not satisfy, all of which failed
