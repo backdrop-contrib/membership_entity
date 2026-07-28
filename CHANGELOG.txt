@@ -1,7 +1,7 @@
 Membership Entity 1.x-1.0.1, 2026-07-28
 ---------------------------------------
 Three Drupal 7 assumptions that Backdrop does not satisfy, all of which failed
-silently rather than erroring. See CHANGELOG.md for the full analysis.
+silently rather than erroring.
 Fixed membership roles never being revoked on expiry, and role assignment
                 raising a duplicate key error on {users_roles} at every renewal.
                 $account->roles is an unindexed array in Backdrop, not keyed by
