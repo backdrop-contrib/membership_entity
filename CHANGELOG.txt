@@ -25,6 +25,11 @@ Fixed the generic renewal page offering the oldest of a member's memberships
                 rather than the current one.
 Fixed deleting a user leaving their membership orphaned, by no longer saving a
                 user account from inside hook_user_delete().
+Fixed lifetime memberships throwing "The DateTime object has not been correctly
+                initialized by its constructor". A lifetime term has no end date
+                by design, and the term date Views handler built a date from it
+                unguarded — which took out the membership terms View and every
+                lifetime member's own membership page.
 
 Membership Entity 1.x-1.0.1, 2026-07-28
 ---------------------------------------
