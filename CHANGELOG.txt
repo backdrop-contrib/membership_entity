@@ -1,3 +1,18 @@
+Membership Entity 1.x-1.0.1, 2026-07-28
+---------------------------------------
+Three Drupal 7 assumptions that Backdrop does not satisfy, all of which failed
+silently rather than erroring. See CHANGELOG.md for the full analysis.
+Fixed membership roles never being revoked on expiry, and role assignment
+                raising a duplicate key error on {users_roles} at every renewal.
+                $account->roles is an unindexed array in Backdrop, not keyed by
+                role ID as in Drupal 7.
+Fixed a user's memberships being silently collapsed to one per type, which lost
+                data on user deletion by orphaning the discarded membership.
+Issue #4: Fixed Join links resolving to membership type management rather than
+                the join form. Backdrop's core Entity class has no entityInfo
+                property, so the guard in MembershipEntityType::uri() was never
+                true and every context fell through to the admin path.
+
 Membership Entity 1.x-1.0.0, 2021-07-31
 ---------------------------------------
 Backdrop port, initial release.

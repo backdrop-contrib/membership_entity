@@ -1,0 +1,4 @@
+# Normalise line endings. Text files are stored with LF in the repository and
+# checked out with LF on every platform, so a contributor working on Windows
+# with core.autocrlf enabled cannot commit a whole-project line ending change.
+* text=auto eol=lf
