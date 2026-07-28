@@ -975,6 +975,16 @@ function membership_entity_user_cancel($edit, $account, $method) {
  * Implements hook_user_delete().
  */
 function membership_entity_user_delete($account) {
+  // Deleting the memberships below revokes their roles, and revoking a role
+  // saves the user account — an account that is already midway through being
+  // deleted. That is wasted work at best; at worst it fires hook_user_update()
+  // for an account whose 'original' is no longer coherent, which is enough to
+  // throw (content_access reads $account->original->roles unguarded) and leave
+  // the membership undeleted. Record the uid so _membership_entity_update_roles()
+  // leaves this account alone; its role rows go with the account anyway.
+  $deleting = &backdrop_static('membership_entity_deleting_users', array());
+  $deleting[$account->uid] = $account->uid;
+
   // Delete primary memberships.
   $memberships = membership_entity_load_by_user($account->uid);
   foreach ($memberships as $membership) {
@@ -1356,18 +1366,28 @@ function membership_entity_delete_multiple(array $mids) {
  * appended on every save (a duplicate key error on {users_roles}) and makes
  * revocation on expiry silently do nothing.
  *
+ * Accounts that are currently being deleted are skipped; see
+ * membership_entity_user_delete().
+ *
  * @param array $roles
  *   Array of role operations keyed by user ID. Each value is an array with a
  *   'rid' role machine name and an 'op' of either 'add' or 'remove'.
  */
 function _membership_entity_update_roles(array $roles) {
   $accounts = user_load_multiple(array_keys($roles));
+  $deleting = &backdrop_static('membership_entity_deleting_users', array());
 
   foreach ($accounts as $uid => $account) {
     $rid = $roles[$uid]['rid'];
 
     // A membership type with no role configured has nothing to do.
     if (empty($rid)) {
+      continue;
+    }
+
+    // Never save an account that is being deleted — see
+    // membership_entity_user_delete().
+    if (isset($deleting[$uid])) {
       continue;
     }
 
