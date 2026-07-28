@@ -37,6 +37,16 @@ class views_handler_field_membership_term_datetime extends views_handler_field_d
   public function get_value($values, $field = NULL) { // @codingStandardsIgnoreLine, Views override compliant
     $value = parent::get_value($values, $field);
     if (empty($field) || $field == $this->real_field) {
+      // A lifetime term has no end date at all — MembershipEntityTerm::save()
+      // sets it to NULL deliberately. Constructing a date from that throws
+      // "The DateTime object has not been correctly initialized by its
+      // constructor", which took out the terms View and every lifetime
+      // member's own membership page. Returning NULL lets
+      // views_handler_field_date::render() emit its empty text instead.
+      if (empty($value)) {
+        return NULL;
+      }
+
       $date = new BackdropDateTime($value, 'UTC');
       return $date->format('U');
     }
