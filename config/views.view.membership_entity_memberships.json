@@ -1,5 +1,6 @@
 {
     "_config_name": "views.view.membership_entity_memberships",
+    "module": "membership_entity",
     "name": "membership_entity_memberships",
     "description": "Display a list of all memberships on the site.",
     "tag": "membership_entity",

@@ -1,3 +1,6 @@
 # OS and IDE generated files
 .directory
 .DS_Store
+
+# Local maintainer working notes, not for distribution.
+CLAUDE.md

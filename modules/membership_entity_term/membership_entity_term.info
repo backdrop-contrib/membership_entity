@@ -9,8 +9,3 @@ dependencies[] = membership_entity
 
 ; Tests
 ;files[] = membership_entity_term.test
-
-; Added by Backdrop CMS packaging script on 2022-01-03
-project = membership_entity
-version = 1.x-1.0.0
-timestamp = 1641254102
