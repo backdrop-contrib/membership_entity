@@ -1,6 +1,6 @@
 Membership Entity 1.x-1.0.2, unreleased
 ---------------------------------------
-Six more Drupal 7 assumptions that Backdrop does not satisfy, found by walking
+Seven more Drupal 7 assumptions that Backdrop does not satisfy, found by walking
 the join, renewal and Views paths that 1.0.1 had not covered.
 Fixed the join form returning HTTP 500 for anonymous visitors — the module's
                 main public entry point. Three fatals in a row on that path:
