@@ -92,14 +92,28 @@ class MembershipEntityController extends EntityPlusController {
       return array();
     }
 
-    $bundles = array();
+    // Keyed by membership id, not by bundle. Keying by bundle silently discarded
+    // every membership but the last whenever a user held more than one of the
+    // same type — which is routine wherever a lapsed member rejoins and is
+    // issued a second membership rather than having the first reinstated. The
+    // losses were not cosmetic: hook_user_delete() deletes only what this
+    // returns, so cancelling such a user left an orphaned membership row
+    // pointing at a uid that no longer existed.
+    $return = array();
     foreach ($memberships as $membership) {
-      $bundles[] = $membership->type;
+      $return[$membership->mid] = $membership;
     }
-    $return = array_combine($bundles, $memberships);
 
+    // Filtering by bundle still yields a single membership, as callers expect.
+    // Where a user holds several of one type the most recent is the live one.
     if (!empty($bundle)) {
-      return isset($return[$bundle]) ? $return[$bundle] : FALSE;
+      $match = FALSE;
+      foreach ($return as $membership) {
+        if ($membership->type == $bundle) {
+          $match = $membership;
+        }
+      }
+      return $match;
     }
 
     return $return;

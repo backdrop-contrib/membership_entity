@@ -1350,20 +1350,34 @@ function membership_entity_delete_multiple(array $mids) {
 /**
  * Private: Add/Remove roles managed by the membership.
  *
+ * Backdrop stores $account->roles as an unindexed array of role machine names,
+ * unlike Drupal 7 where it was keyed by role ID. Membership roles must
+ * therefore be matched by value; keying by role name causes the same role to be
+ * appended on every save (a duplicate key error on {users_roles}) and makes
+ * revocation on expiry silently do nothing.
+ *
  * @param array $roles
- *   Key value array of roles keyed by role ID.
+ *   Array of role operations keyed by user ID. Each value is an array with a
+ *   'rid' role machine name and an 'op' of either 'add' or 'remove'.
  */
 function _membership_entity_update_roles(array $roles) {
   $accounts = user_load_multiple(array_keys($roles));
 
   foreach ($accounts as $uid => $account) {
     $rid = $roles[$uid]['rid'];
-    if ($roles[$uid]['op'] == 'add' && !isset($account->roles[$rid])) {
-      $account->roles[$rid] = $rid;
+
+    // A membership type with no role configured has nothing to do.
+    if (empty($rid)) {
+      continue;
+    }
+
+    $has_role = in_array($rid, $account->roles, TRUE);
+    if ($roles[$uid]['op'] == 'add' && !$has_role) {
+      $account->roles[] = $rid;
       user_save($account);
     }
-    elseif ($roles[$uid]['op'] == 'remove' && isset($account->roles[$rid])) {
-      unset($account->roles[$rid]);
+    elseif ($roles[$uid]['op'] == 'remove' && $has_role) {
+      $account->roles = array_values(array_diff($account->roles, array($rid)));
       user_save($account);
     }
   }

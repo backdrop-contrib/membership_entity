@@ -11,5 +11,7 @@ dependencies[] = entity_ui
 dependencies[] = user
 dependencies[] = views
 
-maintainers[albanycomputers] = 'Steve Moorhouse' 
-maintainers[jayelless] = 'James Scott'
+; Added by Backdrop CMS packaging script on 2022-01-03
+project = membership_entity
+version = 1.x-1.0.0
+timestamp = 1641254102

@@ -99,22 +99,27 @@ class MembershipEntityType extends Entity {
 
   /**
    * {@inheritdoc}
+   *
+   * The context is honoured directly rather than being gated on an
+   * entityInfo['uri callback'] check. Backdrop's core Entity class has no
+   * entityInfo property — that belonged to the Drupal 7 Entity API base class —
+   * so the guard was always false and every context fell through to the admin
+   * management path, sending joins to membership type management instead of the
+   * join form.
+   *
+   * @see https://github.com/backdrop-contrib/membership_entity/issues/4
    */
   public function uri($context = NULL) {
-    if (isset($this->entityInfo['uri callback']) && $this->entityInfo['uri callback'] == 'entity_class_uri') {
-      switch ($context) {
-        case 'join':
-          return $this->joinUri();
+    switch ($context) {
+      case 'join':
+        return $this->joinUri();
 
-        case 'admin':
-          return $this->adminUri();
+      case 'admin':
+        return $this->adminUri();
 
-        default:
-          return $this->defaultUri();
-      }
+      default:
+        return $this->defaultUri();
     }
-    //return entity_uri($this->entityType(), $this);
-    return $this->defaultUri();
   }
 
   /**
