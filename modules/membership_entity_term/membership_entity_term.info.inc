@@ -56,7 +56,7 @@ class MembershipEntityTermMetadataController extends EntityDefaultMetadataContro
     $properties['end'] = array(
       'type' => 'date',
       'label' => t('End date'),
-      'description' => t('The date membership term ends.'),
+      'description' => t('The instant the membership term stops, which is also the instant a renewal term begins — a year from 1 April 2026 ends on 1 April 2027, 12:00am. It is a boundary, not the last day of cover: the member is covered for the whole of 31 March and no part of 1 April. Label it "Renewal date" where that reads better, or use the term date field\'s "last moment of cover" option to show 31 March instead.'),
       'required' => TRUE,
       'schema field' => 'end',
     );

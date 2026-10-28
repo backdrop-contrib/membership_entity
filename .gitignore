@@ -1,3 +1,6 @@
 # OS and IDE generated files
 .directory
 .DS_Store
+
+# Dev-only decision history
+DEVCHANGELOG.md

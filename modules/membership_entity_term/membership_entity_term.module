@@ -34,6 +34,7 @@ function membership_entity_term_autoload_info() {
     'views_handler_field_membership_term_datetime' => 'views/views_handler_field_membership_term_datetime.inc',
     'views_handler_field_membership_term_modifier' => 'views/views_handler_field_membership_term_modifier.inc',
     'views_handler_filter_membership_term_datetime' => 'views/views_handler_filter_membership_term_datetime.inc',
+    'views_handler_field_membership_renewal_state' => 'views/views_handler_field_membership_renewal_state.inc',
     //'MigrateDestinationMembershipEntityTerm' => 'membership_entity_term.migrate.inc',
   );
 }
@@ -239,6 +240,12 @@ function membership_entity_term_access($op, $entity, $account = NULL) {
       return user_access('administer membership terms');
 
     case 'renew':
+      // Nothing to renew where the parent membership pays for everyone
+      // beneath it — the parent is renewed instead.
+      if (membership_entity_child_inherits_terms($entity)) {
+        return FALSE;
+      }
+
       // No renewal if the latest term is lifetime.
       $latest_term = end($entity->terms);
       if (!empty($latest_term) && $latest_term->term == 'lifetime') {
@@ -328,6 +335,16 @@ function membership_entity_term_menu() {
  * Implements hook_menu_alter().
  */
 function membership_entity_term_menu_alter(&$items) {
+  // The renewals tab is a Views page, and a view can only express access as a
+  // permission. What governs this one is a relationship — whether the person
+  // looking heads the membership whose sub-members are listed — so the access
+  // callback is replaced with one that can say so. The path carries a bare %
+  // rather than a loader, so the callback is handed a raw membership id.
+  if (isset($items['membership/%/renewals'])) {
+    $items['membership/%/renewals']['access callback'] = 'membership_entity_term_renewals_access';
+    $items['membership/%/renewals']['access arguments'] = array(1);
+  }
+
   // Adjust the Field UI tabs on
   // admin/memberships/types/manage/[membership-type].
   if (module_exists('membership_entity_type')) {
@@ -342,6 +359,42 @@ function membership_entity_term_menu_alter(&$items) {
     $items['admin/memberships/types/manage/membership/terms/display']['title'] = 'Term display';
     $items['admin/memberships/types/manage/membership/terms/display']['weight'] = 4;
   }
+}
+
+/**
+ * Whether the renewals tab should appear on a membership, and for whom.
+ *
+ * Absent rather than present-and-refused wherever it would mean nothing: on a
+ * membership that cannot have sub-members, and on one whose type renews its
+ * sub-members automatically, where there is no list to mark off and the tab
+ * would invite somebody to do work that has already been done for them.
+ *
+ * @param int $mid
+ *   The membership id from the path.
+ *
+ * @return bool
+ *   TRUE if the tab should be shown.
+ */
+function membership_entity_term_renewals_access($mid) {
+  if (!$membership = membership_entity_load($mid)) {
+    return FALSE;
+  }
+
+  // Two levels only, so a sub-member never has sub-members of its own.
+  if (!empty($membership->pid) || !membership_entity_renews_from_roster($membership)) {
+    return FALSE;
+  }
+
+  if (user_access('administer membership terms') || user_access('administer memberships')) {
+    return TRUE;
+  }
+
+  // The association secretary reaching their own roster. The permission is
+  // keyed on this membership's own type, because the capability comes from
+  // heading it — which is the same rule the sub-member permissions already
+  // follow, seen from the other end.
+  return $membership->uid == $GLOBALS['user']->uid
+    && user_access($membership->type . ' edit sub-memberships');
 }
 
 /**
@@ -363,8 +416,136 @@ function membership_entity_term_membership_entity_bundle_settings_defaults() {
     'tz_handling' => 'site',
     'timezone_db' => 'UTC',
     'available_term_lengths' => array(),
+    // Empty means terms run from wherever they start, which is the behaviour
+    // every existing site has.
+    'fixed_renewal_date' => '',
+    // Which view renders the term ledger on a membership page, as
+    // "view_name:display_id".
+    'term_list_view' => 'membership_entity_terms:term_list',
   );
 }
+
+/**
+ * Implements hook_membership_entity_term_end_date_alter().
+ *
+ * Where a membership type renews on a fixed date, every term ends on that date
+ * whenever it began. A club whose year runs to 31 March charges the same
+ * subscription whether somebody joins in April or in February, and expects them
+ * all to renew together — so the length of a term is really "until the next
+ * renewal", and the term length chosen on the form only decides which renewal.
+ *
+ * @param BackdropDateTime $end
+ *   The end date calculated from the start date, term length and modifiers.
+ * @param object $term
+ *   The term being saved.
+ */
+function membership_entity_term_membership_entity_term_end_date_alter(&$end, $term) {
+  // A lifetime term has no end to move, and a membership type with no fixed
+  // date keeps the ordinary rolling behaviour.
+  if ($term->term == 'lifetime') {
+    return;
+  }
+
+  $settings = membership_entity_get_bundle_settings($term->membership_entity_type);
+  if (empty($settings['fixed_renewal_date'])) {
+    return;
+  }
+
+  $boundary = _membership_entity_term_renewal_boundary($settings['fixed_renewal_date']);
+  if (empty($boundary)) {
+    return;
+  }
+
+  // Everything below stays inside $end's own timezone. Working in timestamps
+  // would silently reintroduce the server's, and midnight is exactly the moment
+  // where that difference shows.
+  $start = new DateTime($term->start, $end->getTimezone());
+
+  // Snap back to the last renewal on or before the calculated end. Someone
+  // joining in August on a one year term is covered to the following 31 March,
+  // not to the following August.
+  $snapped = _membership_entity_term_boundary_in_year($end, $boundary, (int) $end->format('Y'));
+  if ($snapped > $end) {
+    $snapped = _membership_entity_term_boundary_in_year($end, $boundary, (int) $end->format('Y') - 1);
+  }
+
+  // Snapping back can land on or before the start — a short term inside one
+  // membership year, or a term beginning just after a renewal date. Go forward
+  // to the next renewal instead, so the term always covers something.
+  if ($snapped <= $start) {
+    $snapped = _membership_entity_term_boundary_in_year($end, $boundary, (int) $start->format('Y'));
+    if ($snapped <= $start) {
+      $snapped = _membership_entity_term_boundary_in_year($end, $boundary, (int) $start->format('Y') + 1);
+    }
+  }
+
+  $end->setDate((int) $snapped->format('Y'), (int) $snapped->format('n'), (int) $snapped->format('j'));
+  $end->setTime(0, 0, 0);
+}
+
+/**
+ * Split a stored fixed renewal date into a day and a month.
+ *
+ * Stored as the last day of cover, "31-3", because that is the date a member
+ * recognises. The instant cover stops is the midnight after it, which is what
+ * _membership_entity_term_boundary_in_year() returns.
+ *
+ * @param string $value
+ *   The stored setting, "D-M".
+ *
+ * @return array|false
+ *   An array of day and month, or FALSE if the setting is unusable.
+ */
+function _membership_entity_term_renewal_boundary($value) {
+  $parts = explode('-', $value);
+  if (count($parts) != 2) {
+    return FALSE;
+  }
+
+  $day = (int) $parts[0];
+  $month = (int) $parts[1];
+  if ($day < 1 || $day > 31 || $month < 1 || $month > 12) {
+    return FALSE;
+  }
+
+  return array('day' => $day, 'month' => $month);
+}
+
+/**
+ * The renewal instant in a given year, in a given date's timezone.
+ *
+ * Cover stops at the midnight following the last day of cover, matching how
+ * every other end date in this module is stored: a year ending 31 March is
+ * stored as 1 April, 12:00am, which is also when the next term begins.
+ *
+ * @param DateTime $like
+ *   A date whose timezone the result should share.
+ * @param array $boundary
+ *   Day and month, from _membership_entity_term_renewal_boundary().
+ * @param int $year
+ *   The calendar year of the last day of cover.
+ *
+ * @return DateTime
+ *   The instant cover stops.
+ */
+function _membership_entity_term_boundary_in_year(DateTime $like, array $boundary, $year) {
+  $date = new DateTime('now', $like->getTimezone());
+
+  // 29 February is allowed to be chosen and simply falls back to the 28th in
+  // other years, so the day is clamped to the length of the month rather than
+  // being allowed to roll into the next one.
+  $days_in_month = (int) date('t', mktime(0, 0, 0, $boundary['month'], 1, $year));
+  $day = min($boundary['day'], $days_in_month);
+
+  $date->setDate($year, $boundary['month'], $day);
+  $date->setTime(0, 0, 0);
+
+  // Roll to the following day, so 31 March becomes 1 April at midnight.
+  $date->modify('+1 day');
+
+  return $date;
+}
+
 
 /**
  * Implements hook_membership_entity_term_start_date_alter().
@@ -411,9 +592,19 @@ function membership_entity_term_type_load($name) {
 
 /**
  * Implements hook_membership_entity_type_insert().
+ *
+ * The bundle is the membership type's own name. It was previously created as
+ * 'membership_entity_term_<type>', which is not the name a term reports: the
+ * entity's bundle key is membership_entity_type, so entity_extract_ids() gives
+ * back the plain type, and hook_entity_info() lists the plain type too. The
+ * prefixed bundle was therefore one nothing ever referred to — harmless while
+ * no term bundle had any fields on it, and a way to lose them as soon as one
+ * did, because the rename below moved a bundle that did not exist and left the
+ * real one pointing at a type that no longer existed.
  */
 function membership_entity_term_membership_entity_type_insert($info) {
-  field_attach_create_bundle('membership_entity_term', 'membership_entity_term_' . $info->type);
+  field_attach_create_bundle('membership_entity_term', $info->type);
+  membership_entity_term_add_note_field($info->type);
 }
 
 /**
@@ -421,7 +612,7 @@ function membership_entity_term_membership_entity_type_insert($info) {
  */
 function membership_entity_term_membership_entity_type_update($info) {
   if (!empty($info->old_type) && $info->type != $info->old_type) {
-    field_attach_rename_bundle('membership_entity_term', 'membership_entity_term_' . $info->old_type, 'membership_entity_term_' . $info->type);
+    field_attach_rename_bundle('membership_entity_term', $info->old_type, $info->type);
   }
 }
 
@@ -429,7 +620,7 @@ function membership_entity_term_membership_entity_type_update($info) {
  * Implements hook_membership_entity_type_delete().
  */
 function membership_entity_term_membership_entity_type_delete($info) {
-  field_attach_delete_bundle('membership_entity_term', 'membership_entity_term_' . $info->type);
+  field_attach_delete_bundle('membership_entity_term', $info->type);
 }
 
 /**
@@ -462,16 +653,255 @@ function membership_entity_term_membership_entity_term_delete($term) {
 function _membership_entity_term_insert_update($term) {
   $membership = membership_entity_load($term->mid);
 
+  // A parent that pays for its sub-members carries them along with it.
+  _membership_entity_term_propagate_to_children($term);
+
   // Membership status should always match the current or latest term.
   if ($current = membership_entity_term_get_current($membership)) {
     $membership->status = $current->status;
     $membership->save();
   }
-  elseif (!empty($membership->terms)) {
-    $latest = end($membership->terms);
+  // Reloaded rather than read from $membership->terms, which is very often
+  // stale here: the membership was loaded before the term was written and the
+  // entity cache hands back that same object, so the term whose save provoked
+  // this hook is missing from it and the "latest" term is the one it replaced.
+  // The effect is a renewal that leaves the membership on the status it was
+  // renewing away from — a lapsed member marked as renewed still reading as
+  // expired. Only visible where the new term has not started yet, because
+  // get_current() above queries the database and so is never stale.
+  elseif ($terms = membership_entity_term_load_by_membership($membership, TRUE)) {
+    $membership->terms = $terms;
+    $latest = end($terms);
     $membership->status = $latest->status;
     $membership->save();
   }
+}
+
+/**
+ * Bring a paying parent's sub-members onto its newly renewed term.
+ *
+ * Where a membership type says one payment covers everyone, the sub-members
+ * still hold terms of their own — that is what gives each of them a joining
+ * date, a renewal history and a lapse that can be seen and annotated. They do
+ * not renew themselves, so renewing the parent is what moves them on.
+ *
+ * This is the 'inherit' route, where sub-members are brought forward as a body.
+ * Leaving somebody out of one of these renewals is done by detaching them,
+ * which is already a first-class act with its own permission, rather than by
+ * quietly declining to extend their term — a membership that silently stopped
+ * being renewed would be indistinguishable from one nobody had got round to
+ * yet. Where the parent is instead set to 'roster', it is expected that some of
+ * its sub-members will not be renewed, and they are marked off one at a time
+ * from the parent's renewals tab.
+ *
+ * @see membership_entity_term_renew_sub_member_action()
+ *
+ * @param object $term
+ *   The term just saved against the parent membership.
+ */
+function _membership_entity_term_propagate_to_children($term) {
+  $child_mids = membership_entity_child_mids($term->mid);
+  if (empty($child_mids)) {
+    return;
+  }
+
+  $parent = membership_entity_load($term->mid);
+  $settings = membership_entity_get_bundle_settings($parent->type);
+  if ($settings['child_terms'] != 'inherit') {
+    // 'own': each sub-member pays for and renews their own membership, so the
+    // parent's term is none of their business.
+    //
+    // 'roster': the parent pays, but only for the people on the list it sends
+    // across at renewal. Carrying everybody forward here would cover the ones
+    // who quietly dropped out as well, and would do it invisibly — the renewal
+    // has succeeded and nobody has any reason to go looking. Those sub-members
+    // are renewed one at a time instead, from the parent's renewals tab.
+    return;
+  }
+
+  // Only a term that grants cover is copied down. An expiring one is not: a
+  // sub-member losing access when the membership above them lapses is the
+  // cascade's job, computed from the parent's status, and writing it into their
+  // own term would destroy the record of what they held in their own right.
+  if ((int) $term->status !== MEMBERSHIP_ENTITY_ACTIVE) {
+    return;
+  }
+
+  $skipped = array();
+
+  foreach (membership_entity_load_multiple($child_mids) as $child) {
+    // Somebody the organisation has decided is no longer with them — resigned,
+    // died, been removed — is not carried forward. Cancelled is the status that
+    // already means "ended deliberately", so it is the one that excludes.
+    //
+    // Expired deliberately does NOT exclude. When a membership is renewed after
+    // its date has passed, every sub-member beneath it has expired along with
+    // it, and skipping them would mean a late renewal quietly renewed nobody.
+    // Letting somebody go is a decision that has to be recorded as one.
+    if (in_array((int) $child->status, array(MEMBERSHIP_ENTITY_CANCELLED, MEMBERSHIP_ENTITY_PENDING))) {
+      $skipped[$child->mid] = $child;
+      continue;
+    }
+
+    // A sub-member already covered to this date or beyond needs nothing.
+    // Comparing cover rather than counting terms is what makes this safe to run
+    // on every save: a member who joined mid-year is not renewed twice, an
+    // unchanged term re-saved adds nothing, editing a superseded term does not
+    // drag anybody backwards, and a member who lapsed is picked back up.
+    if (_membership_entity_term_covers_to($child, $term->end)) {
+      continue;
+    }
+
+    membership_entity_term_copy_from_parent($child, $parent->mid, $term);
+  }
+
+  _membership_entity_term_report_skipped($parent, $skipped);
+}
+
+/**
+ * Say who was left out of a renewal, so they can be chased or closed off.
+ *
+ * A renewal that silently covered fewer people than the organisation expected
+ * is the failure worth guarding against here: the money has been taken, and
+ * whoever took it has no reason to look. Naming them at the moment of renewal
+ * is the one time somebody is certain to be looking.
+ *
+ * @param MembershipEntity $parent
+ *   The membership that was renewed.
+ * @param array $skipped
+ *   Sub-memberships not carried forward, keyed by mid.
+ */
+function _membership_entity_term_report_skipped(MembershipEntity $parent, array $skipped) {
+  if (empty($skipped)) {
+    return;
+  }
+
+  $statuses = membership_entity_get_status_list();
+  $items = array();
+  foreach ($skipped as $child) {
+    $items[] = t('@id — @name (@status)', array(
+      '@id' => $child->member_id,
+      '@name' => membership_entity_member_name($child),
+      '@status' => $statuses[(int) $child->status],
+    ));
+  }
+
+  backdrop_set_message(format_plural(count($skipped),
+    'One sub-member of @parent was not renewed, because their membership has been ended rather than allowed to lapse:',
+    '@count sub-members of @parent were not renewed, because their memberships have been ended rather than allowed to lapse:',
+    array('@parent' => $parent->member_id)) . theme('item_list', array('items' => $items)), 'warning');
+}
+
+/**
+ * Whether a membership is already covered to at least a given date.
+ *
+ * Note membership_entity_term_get_current() cannot answer this on its own: it
+ * takes the first row whose span contains today, and renewing early leaves two
+ * overlapping terms current at once, so which one comes back is arbitrary. The
+ * furthest end date across the membership's active terms is the honest measure
+ * of how far its cover reaches.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to measure.
+ * @param string|null $end
+ *   The end date to compare against, or NULL for a lifetime term, which no
+ *   fixed date can match.
+ *
+ * @return bool
+ *   TRUE if the membership is already covered that far.
+ */
+function _membership_entity_term_covers_to(MembershipEntity $membership, $end) {
+  // Nothing outlasts a lifetime term, so only another one will do.
+  $furthest = db_query('SELECT MAX(end) FROM {membership_entity_term} WHERE mid = :mid AND status = :status', array(
+    ':mid' => $membership->mid,
+    ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+  ))->fetchField();
+
+  $lifetime = (bool) db_query_range('SELECT 1 FROM {membership_entity_term} WHERE mid = :mid AND status = :status AND term = :term', 0, 1, array(
+    ':mid' => $membership->mid,
+    ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ':term' => 'lifetime',
+  ))->fetchField();
+
+  if ($lifetime) {
+    return TRUE;
+  }
+  if (empty($end)) {
+    return FALSE;
+  }
+
+  return !empty($furthest) && strtotime($furthest) >= strtotime($end);
+}
+
+/**
+ * Implements hook_membership_entity_uncoupled().
+ *
+ * A membership whose parent paid for it holds no term of its own, and its
+ * status sits permanently at active — harmless while the parent governs it, but
+ * a membership that never expires once the parent is removed. Give it the
+ * parent's current term so that it carries on from where the parent left off
+ * and renews on its own thereafter.
+ *
+ * @param MembershipEntity $membership
+ *   The membership that has just been detached from its parent.
+ * @param int $old_pid
+ *   The membership id of the parent it was detached from.
+ */
+function membership_entity_term_membership_entity_uncoupled($membership, $old_pid) {
+  // Only a membership with no term of its own needs one. Anything else was
+  // already renewing separately.
+  $terms = membership_entity_term_load_by_membership($membership, TRUE);
+  if (!empty($terms)) {
+    return;
+  }
+
+  if (!membership_entity_term_copy_from_parent($membership, $old_pid)) {
+    return;
+  }
+
+  backdrop_set_message(t('Membership %member_id has been given its own term, ending on the same date as the membership it has left. It renews separately from now on.', array(
+    '%member_id' => $membership->member_id,
+  )));
+}
+
+/**
+ * Give a membership a term matching its parent's current one.
+ *
+ * The start and the length are copied, never the end date: MembershipEntityTerm
+ * recalculates end from start plus term on every save, so an assigned end is
+ * silently discarded. Same start and same length reproduces the same end.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to give a term to. It must already be saved.
+ * @param int $parent_mid
+ *   The membership id to copy the term from.
+ * @param object $parent_term
+ *   The specific term to copy. Defaults to the parent's current term, which is
+ *   what the joining and uncoupling paths want; the renewal path passes the
+ *   term it has just saved, because two overlapping terms can both be current
+ *   and picking between them by date is guesswork.
+ *
+ * @return MembershipEntityTerm|false
+ *   The term created, or FALSE where the parent has no current term to copy.
+ */
+function membership_entity_term_copy_from_parent(MembershipEntity $membership, $parent_mid, $parent_term = NULL) {
+  if (empty($parent_term)) {
+    $parent_term = membership_entity_term_get_current($parent_mid);
+  }
+  if (empty($parent_term)) {
+    return FALSE;
+  }
+
+  $term = membership_entity_term_create(array(
+    'mid' => $membership->mid,
+    'membership_entity_type' => $membership->type,
+    'term' => $parent_term->term,
+    'start' => $parent_term->start,
+    'status' => $parent_term->status,
+  ));
+  membership_entity_term_save($term);
+
+  return $term;
 }
 
 /**
@@ -504,6 +934,56 @@ function membership_entity_term_field_info_alter(&$info) {
 }
 
 /**
+ * Ensure a membership type's terms carry a note field.
+ *
+ * "Renewed 5 August, late because of illness" is the line an organisation
+ * actually wants in its records, and without somewhere to put it the ledger can
+ * only ever show dates. Created rather than documented because a site builder
+ * has no reason to guess that terms are fieldable at all — the entity has been
+ * fieldable since the beginning and every bundle shipped with no fields.
+ *
+ * Does nothing where the field is already there, so it is safe to call on every
+ * type save, and a site that deletes the field is not given it back.
+ *
+ * @param string $bundle
+ *   The membership type whose terms should have the field.
+ */
+function membership_entity_term_add_note_field($bundle) {
+  $field_name = 'membership_term_note';
+
+  if (!field_info_field($field_name)) {
+    field_create_field(array(
+      'field_name' => $field_name,
+      'type' => 'text_long',
+      'entity_types' => array('membership_entity_term'),
+      'cardinality' => 1,
+    ));
+  }
+
+  if (field_info_instance('membership_entity_term', $field_name, $bundle)) {
+    return;
+  }
+
+  field_create_instance(array(
+    'field_name' => $field_name,
+    'entity_type' => 'membership_entity_term',
+    'bundle' => $bundle,
+    'label' => t('Note'),
+    'description' => t('Anything worth recording about this term — why it started late, what was agreed, who authorised it.'),
+    'required' => FALSE,
+    'settings' => array(
+      // Off on the public join form; this is a record keeper's field.
+      'membership_entity_join_form' => 0,
+      'membership_entity_term_renew_form' => 0,
+    ),
+    'widget' => array(
+      'type' => 'text_textarea',
+      'weight' => 20,
+    ),
+  ));
+}
+
+/**
  * Implements hook_field_extra_fields().
  */
 function membership_entity_term_field_extra_fields() {
@@ -521,7 +1001,11 @@ function membership_entity_term_field_extra_fields() {
         'membership_terms' => array(
           'label' => t('Membership term list'),
           'description' => t('A list of terms for the membership.'),
-          'weight' => -99,
+          // Below the membership's own details rather than above them. At -99
+          // the ledger rendered before the member it belongs to, which read as
+          // an accident and was never what anybody would order it by hand. A
+          // site that has saved its own display keeps whatever it chose.
+          'weight' => 10,
         ),
       ),
     );
@@ -559,7 +1043,21 @@ function membership_entity_term_field_extra_fields() {
  * Implements hook_membership_entity_view().
  */
 function membership_entity_term_membership_entity_view($membership, $view_mode, $langcode) {
-  $membership->content['membership_terms']['#markup'] = views_embed_view('membership_entity_terms', 'term_list', $membership->mid);
+  // Declared as an extra field, so it can be moved, hidden or turned off from
+  // Manage Display like anything else on the page. It used to be emitted with
+  // no weight at all, which is why the ledger rendered above the identity of
+  // the member it belonged to.
+  $display = field_extra_fields_get_display('membership_entity', $membership->type, $view_mode);
+
+  if (!isset($display['membership_terms']) || !empty($display['membership_terms']['visible'])) {
+    $settings = membership_entity_get_bundle_settings($membership->type);
+    list($view_name, $display_id) = _membership_entity_term_ledger_view($settings);
+
+    $membership->content['membership_terms'] = array(
+      '#markup' => views_embed_view($view_name, $display_id, $membership->mid),
+      '#weight' => isset($display['membership_terms']['weight']) ? $display['membership_terms']['weight'] : 10,
+    );
+  }
 
   if ($view_mode == 'account' && membership_entity_access('renew', $membership)) {
     // Add a renew link.
@@ -620,6 +1118,25 @@ function membership_entity_term_form_alter(&$form, &$form_state, $form_id) {
 }
 
 /**
+ * The view and display used for a membership type's term ledger.
+ *
+ * @param array $settings
+ *   The membership type's settings.
+ *
+ * @return array
+ *   The view name and display id.
+ */
+function _membership_entity_term_ledger_view(array $settings) {
+  $value = !empty($settings['term_list_view']) ? $settings['term_list_view'] : 'membership_entity_terms:term_list';
+  $parts = explode(':', $value);
+
+  return array(
+    $parts[0],
+    isset($parts[1]) ? $parts[1] : 'default',
+  );
+}
+
+/**
  * Implements hook_membership_entity_settings_alter().
  */
 function membership_entity_term_membership_entity_settings_alter(&$form, &$form_state, $data) {
@@ -670,6 +1187,169 @@ function membership_entity_term_form_field_ui_field_edit_form_submit($form, &$fo
   if (!empty($instance['required'])) {
     form_set_value($form['instance']['settings']['membership_entity_renew_form'], 1, $form_state);
   }
+}
+
+/**
+ * Implements hook_action_info().
+ */
+function membership_entity_term_action_info() {
+  return array(
+    'membership_entity_term_renew_sub_member_action' => array(
+      'type' => 'membership_entity',
+      'label' => t('Mark as renewed'),
+      'configurable' => FALSE,
+    ),
+  );
+}
+
+/**
+ * Actions callback: renew a sub-member onto the term its parent is paying for.
+ *
+ * The act this exists for is an association handing over the list of who has
+ * paid it this year. The list is never the whole membership, so the renewal
+ * cannot be applied to everybody as a body; it is applied one member at a time,
+ * to exactly the people named. Whoever is not named is left entirely alone —
+ * their existing term runs out on its own date and expiry takes its ordinary
+ * course. That is the difference between somebody who has lapsed and somebody
+ * who has resigned, and it is worth keeping, because a lapsed member very often
+ * comes back and should come back to the same record.
+ *
+ * No new term arithmetic lives here. The term is the parent's, copied down by
+ * the same function the automatic cascade uses, so the two routes cannot drift
+ * apart and a member renewed by hand is indistinguishable from one renewed as
+ * part of a group.
+ *
+ * Safe to run more than once, and safe to run over a selection that includes
+ * people already dealt with: a sub-member already covered to the parent's end
+ * date is left untouched rather than given a second term. That matters because
+ * a roster of any size gets worked through in sittings, with the same rows
+ * inevitably selected twice.
+ *
+ * @param MembershipEntity $membership
+ *   The sub-member being marked as renewed.
+ * @param array $context
+ *   Action context. Unused.
+ */
+function membership_entity_term_renew_sub_member_action($membership, $context = array()) {
+  // Bulk operations hand rows over as whatever the view produced, which is not
+  // always a MembershipEntity, and every helper below is type hinted.
+  if (!($membership instanceof MembershipEntity)) {
+    $membership = membership_entity_create_from_stdclass($membership);
+  }
+
+  // The action is only meaningful where somebody above is paying. A membership
+  // that renews separately has its own term to buy and its own renewal form to
+  // buy it on; handing it the parent's term would give away cover nobody has
+  // paid for.
+  if (empty($membership->pid) || !membership_entity_child_inherits_terms($membership)) {
+    _membership_entity_term_renew_action_warn('not_covered', $membership->pid, t('%id is not paid for by a membership above it, so it cannot be renewed this way. It renews on its own membership page.', array(
+      '%id' => $membership->member_id,
+    )));
+    return;
+  }
+
+  if (!membership_entity_term_renew_sub_member_access($membership)) {
+    _membership_entity_term_renew_action_warn('denied', $membership->pid, t('You do not have permission to renew sub-members of that membership.'));
+    return;
+  }
+
+  // Renewing the parent is what buys the cover, so it has to have happened
+  // first. Saying so is the whole point of the check — copy_from_parent simply
+  // returns FALSE, which on a bulk run would look like nothing at all.
+  $parent_term = _membership_entity_term_furthest($membership->pid);
+  if (empty($parent_term)) {
+    _membership_entity_term_renew_action_warn('no_parent_term', $membership->pid, t('The membership above these sub-members has no current term, so there is nothing to renew them onto. Renew it first, then mark its sub-members as renewed.'));
+    return;
+  }
+
+  if (_membership_entity_term_covers_to($membership, $parent_term->end)) {
+    return;
+  }
+
+  membership_entity_term_copy_from_parent($membership, $membership->pid, $parent_term);
+}
+
+/**
+ * The active term carrying a membership's cover furthest forward.
+ *
+ * Deliberately not membership_entity_term_get_current(), which asks a different
+ * question — what covers the membership *today*. An association that renews
+ * before its date runs out holds two active terms at once, and the current one
+ * is then the OLD one: copying that down would hand every sub-member the cover
+ * they already had and report a successful renewal for doing nothing. The
+ * automatic cascade never meets this because it is handed the term that was
+ * just saved; anything working from the parent afterwards has to go looking.
+ *
+ * @param int $mid
+ *   The membership id.
+ *
+ * @return object|false
+ *   The active term reaching furthest into the future, or FALSE if there is
+ *   none. A lifetime term wins outright — nothing outlasts it, and it carries
+ *   no end date to compare.
+ */
+function _membership_entity_term_furthest($mid) {
+  $id = db_query_range('SELECT id FROM {membership_entity_term} WHERE mid = :mid AND status = :status AND term = :term', 0, 1, array(
+    ':mid' => $mid,
+    ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ':term' => 'lifetime',
+  ))->fetchField();
+
+  if (!$id) {
+    $id = db_query_range('SELECT id FROM {membership_entity_term} WHERE mid = :mid AND status = :status AND end IS NOT NULL ORDER BY end DESC', 0, 1, array(
+      ':mid' => $mid,
+      ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ))->fetchField();
+  }
+
+  return $id ? membership_entity_term_load($id) : FALSE;
+}
+
+/**
+ * Whether the current user may renew a given sub-member.
+ *
+ * Repeats the check rather than leaning on the view's own access, because a
+ * bulk operations form is configured separately from the permissions and the
+ * two drift. An association secretary reaches this through the roster tab on
+ * their own membership; a site administrator reaches it from anywhere.
+ *
+ * @param MembershipEntity $membership
+ *   The sub-member being renewed.
+ *
+ * @return bool
+ *   TRUE if the renewal may proceed.
+ */
+function membership_entity_term_renew_sub_member_access(MembershipEntity $membership) {
+  if (user_access('administer membership terms') || user_access('administer memberships')) {
+    return TRUE;
+  }
+
+  return membership_entity_manages_sub_membership('edit', $membership);
+}
+
+/**
+ * Say once per parent what stopped a bulk renewal, rather than once per row.
+ *
+ * Every reason a row is refused is a property of the membership above it, so on
+ * a roster of two hundred the same sentence would otherwise be printed two
+ * hundred times and bury everything else on the page.
+ *
+ * @param string $reason
+ *   A key identifying the kind of refusal.
+ * @param int $pid
+ *   The parent membership id, or empty where there is none.
+ * @param string $message
+ *   The message to show the first time this reason arises for this parent.
+ */
+function _membership_entity_term_renew_action_warn($reason, $pid, $message) {
+  $seen = &backdrop_static(__FUNCTION__, array());
+  $key = $reason . ':' . (int) $pid;
+  if (isset($seen[$key])) {
+    return;
+  }
+
+  $seen[$key] = TRUE;
+  backdrop_set_message($message, 'warning');
 }
 
 /**

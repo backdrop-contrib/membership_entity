@@ -1,0 +1,16 @@
+{
+    "_config_name": "membership_entity_ubercart.settings",
+    "address_source": "billing",
+    "address_fields": {
+        "first_name": "",
+        "last_name": "",
+        "company": "",
+        "street1": "",
+        "street2": "",
+        "city": "",
+        "zone": "",
+        "postal_code": "",
+        "country": "",
+        "phone": ""
+    }
+}

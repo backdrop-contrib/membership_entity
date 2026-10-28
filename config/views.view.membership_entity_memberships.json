@@ -122,6 +122,24 @@
                             "alt": "View membership [member_id]"
                         }
                     },
+                    "member_id_1": {
+                        "id": "member_id_1",
+                        "table": "membership_entity",
+                        "field": "member_id",
+                        "relationship": "pid",
+                        "label": "Belongs to",
+                        "empty": "—",
+                        "alter": {
+                            "make_link": true,
+                            "path": "membership/[pid]"
+                        }
+                    },
+                    "child_count": {
+                        "id": "child_count",
+                        "table": "membership_entity",
+                        "field": "child_count",
+                        "label": "Sub-members"
+                    },
                     "primary_member": {
                         "id": "primary_member",
                         "table": "membership_entity",
@@ -142,6 +160,12 @@
                         "field": "created",
                         "label": "Created",
                         "date_format": "short"
+                    },
+                    "effective_status": {
+                        "id": "effective_status",
+                        "table": "membership_entity",
+                        "field": "effective_status",
+                        "label": "Effective status"
                     },
                     "url": {
                         "id": "url",
@@ -176,7 +200,7 @@
                         "exposed": true,
                         "expose": {
                             "operator_id": "member_id_op",
-                            "label": "Member ID",
+                            "label": "Site id number",
                             "operator": "member_id_op",
                             "identifier": "member_id",
                             "remember_roles": {
@@ -207,6 +231,15 @@
                                 "5": 0
                             }
                         }
+                    }
+                },
+                "relationships": {
+                    "pid": {
+                        "id": "pid",
+                        "table": "membership_entity",
+                        "field": "pid",
+                        "label": "Parent membership",
+                        "required": false
                     }
                 }
             }

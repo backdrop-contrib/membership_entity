@@ -61,7 +61,7 @@ class MigrateDestinationMembershipEntity extends MigrateDestinationEntity {
     // Core membership properties.
     $fields['mid'] = t('Membership: Internal membership ID');
     $fields['type'] = t('Membership: The type of membership');
-    $fields['member_id'] = t('Membership: The unique member ID');
+    $fields['member_id'] = t('Membership: The site id number');
     $fields['uid'] = t('Membership: The primary member (uid)');
     $fields['secondary_members'] = t('Membership: The secondary member(s) (uid)');
     $fields['status'] = t('Membership: The membership status code');

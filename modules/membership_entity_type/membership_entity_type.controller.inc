@@ -26,6 +26,8 @@ class MembershipEntityTypeController extends EntityPlusControllerExportable {
         'roles' => array(),
         'primary_role' => '',
         'secondary_role' => '',
+        'max_children' => 0,
+        'child_terms' => 'own',
       ),
     );
     return parent::create($values);

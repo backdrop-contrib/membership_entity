@@ -76,3 +76,48 @@ function hook_membership_entity_operations() {
     ),
   );
 }
+
+/**
+ * Respond to a membership being detached from its parent.
+ *
+ * Fired when a membership that belonged to a household or association has its
+ * parent cleared. The membership is on its own from this point: nothing gates
+ * its access any longer, so anything the parent was providing on its behalf
+ * has to be reconsidered here.
+ *
+ * membership_entity_term implements this to give the membership a term of its
+ * own, copied from the parent's current term, where the parent was paying for
+ * it. Without that the membership would have no term at all and would never
+ * expire.
+ *
+ * @param MembershipEntity $membership
+ *   The membership that has just been detached, already saved.
+ * @param int $old_pid
+ *   The membership id of the parent it was detached from.
+ */
+function hook_membership_entity_uncoupled($membership, $old_pid) {
+  watchdog('example', 'Membership @id left membership @parent.', array(
+    '@id' => $membership->member_id,
+    '@parent' => $old_pid,
+  ));
+}
+
+/**
+ * Alter the status that governs a membership's access.
+ *
+ * The effective status is the membership's own status, unless it belongs to a
+ * parent membership that is not itself active — in which case the parent's
+ * status is returned instead, so that revoking an organisation's membership
+ * revokes everyone beneath it.
+ *
+ * @param int $status
+ *   The resolved status, one of the MEMBERSHIP_ENTITY_* constants.
+ * @param MembershipEntity $membership
+ *   The membership being resolved.
+ */
+function hook_membership_entity_effective_status_alter(&$status, $membership) {
+  // Let honorary members keep access whatever their association is doing.
+  if (!empty($membership->field_honorary[LANGUAGE_NONE][0]['value'])) {
+    $status = MEMBERSHIP_ENTITY_ACTIVE;
+  }
+}

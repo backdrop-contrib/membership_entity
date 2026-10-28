@@ -1,0 +1,541 @@
+<?php
+
+/**
+ * @file
+ * Sells memberships through Ubercart.
+ *
+ * A "Membership" product feature ties a product, or one SKU of it, to a
+ * membership type and a term length. When an order holding that product is
+ * paid, the buyer's membership is renewed, a lapsed one reinstated, or a new
+ * one created — the same three outcomes as the module's own join and renew
+ * forms, reached through the same functions so that grace periods, fixed
+ * renewal dates, the rejoin policy and role assignment all behave identically.
+ */
+
+/**
+ * Implements hook_config_info().
+ */
+function membership_entity_ubercart_config_info() {
+  $prefixes['membership_entity_ubercart.settings'] = array(
+    'label' => t('Membership Entity Ubercart settings'),
+    'group' => t('Configuration'),
+  );
+  return $prefixes;
+}
+
+/**
+ * Implements hook_uc_product_feature().
+ */
+function membership_entity_ubercart_uc_product_feature() {
+  $features[] = array(
+    'id' => 'membership',
+    'title' => t('Membership'),
+    'callback' => 'membership_entity_ubercart_feature_form',
+    'delete' => 'membership_entity_ubercart_feature_delete',
+  );
+
+  return $features;
+}
+
+/**
+ * Form builder for the membership product feature.
+ *
+ * @see membership_entity_ubercart_feature_form_validate()
+ * @see membership_entity_ubercart_feature_form_submit()
+ */
+function membership_entity_ubercart_feature_form($form, &$form_state, $node, $feature) {
+  $product = FALSE;
+  if (!empty($feature)) {
+    $product = db_query('SELECT * FROM {membership_entity_ubercart_products} WHERE pfid = :pfid', array(
+      ':pfid' => $feature['pfid'],
+    ))->fetchObject();
+  }
+
+  // Said here as well as on the status report, because this is where the
+  // second mechanism gets added and where it is cheapest to take it off again.
+  if ($nids = membership_entity_ubercart_role_conflicts($node->nid)) {
+    backdrop_set_message(membership_entity_ubercart_role_conflict_message($nids), 'warning');
+  }
+
+  $form['model'] = array(
+    '#type' => 'select',
+    '#title' => t('SKU'),
+    '#default_value' => $product ? $product->model : '',
+    '#description' => t('The SKU that buys this membership. Where each option of the product is a different term (one year, five years), add a feature for each SKU.'),
+    '#options' => uc_product_get_models($node->nid),
+  );
+
+  $options = membership_entity_ubercart_term_options();
+  if (empty($options)) {
+    backdrop_set_message(t('No membership type has any term lengths yet, so there is nothing to sell. <a href="!url">Add term lengths to a membership type</a> first.', array(
+      '!url' => url('admin/memberships/types'),
+    )), 'error');
+  }
+
+  $form['membership'] = array(
+    '#type' => 'select',
+    '#title' => t('Membership'),
+    '#default_value' => $product ? $product->type . '|' . $product->term : NULL,
+    '#description' => t('The membership type and term length added when the order is paid. Term lengths come from the membership type: add one there if it is missing here.'),
+    '#options' => $options,
+    '#required' => TRUE,
+  );
+
+  return $form;
+}
+
+/**
+ * Validation handler for membership_entity_ubercart_feature_form().
+ */
+function membership_entity_ubercart_feature_form_validate($form, &$form_state) {
+  $values = $form_state['values'];
+
+  // Two features matching one order product would add two terms for one
+  // payment. "Any SKU" overlaps with every specific SKU.
+  $query = db_select('membership_entity_ubercart_products', 'p')
+    ->fields('p', array('pfid'))
+    ->condition('nid', $values['nid']);
+  if ($values['model'] !== '') {
+    $query->condition('model', array($values['model'], ''), 'IN');
+  }
+  if (!empty($values['pfid'])) {
+    $query->condition('pfid', $values['pfid'], '<>');
+  }
+
+  if ($query->range(0, 1)->execute()->fetchField()) {
+    form_set_error('model', t('This product already has a membership feature that covers that SKU, so one payment would add two terms.'));
+  }
+}
+
+/**
+ * Submission handler for membership_entity_ubercart_feature_form().
+ */
+function membership_entity_ubercart_feature_form_submit($form, &$form_state) {
+  $values = $form_state['values'];
+  list($type, $term) = explode('|', $values['membership'], 2);
+
+  $bundle = membership_entity_get_bundles($type);
+  $description = t('<strong>SKU:</strong> @sku<br /><strong>Membership:</strong> @type, @term', array(
+    '@sku' => $values['model'] === '' ? t('Any') : $values['model'],
+    '@type' => $bundle ? $bundle->label : $type,
+    '@term' => $term,
+  ));
+
+  $data = array(
+    'pfid' => isset($values['pfid']) ? $values['pfid'] : NULL,
+    'nid' => $values['nid'],
+    'fid' => 'membership',
+    'description' => $description,
+  );
+  $form_state['redirect'] = uc_product_feature_save($data);
+
+  $record = array(
+    'pfid' => $data['pfid'],
+    'nid' => $values['nid'],
+    'model' => $values['model'],
+    'type' => $type,
+    'term' => $term,
+  );
+  $exists = db_query('SELECT 1 FROM {membership_entity_ubercart_products} WHERE pfid = :pfid', array(':pfid' => $data['pfid']))->fetchField();
+  backdrop_write_record('membership_entity_ubercart_products', $record, $exists ? 'pfid' : array());
+}
+
+/**
+ * Product feature delete callback.
+ */
+function membership_entity_ubercart_feature_delete($pfid) {
+  db_delete('membership_entity_ubercart_products')
+    ->condition('pfid', $pfid)
+    ->execute();
+}
+
+/**
+ * Every membership type and term length that can be sold.
+ *
+ * @return array
+ *   Options keyed "type|term", grouped by membership type label.
+ */
+function membership_entity_ubercart_term_options() {
+  $options = array();
+  foreach (membership_entity_get_bundles() as $bundle) {
+    $settings = membership_entity_get_bundle_settings($bundle->type);
+    if (empty($settings['available_term_lengths'])) {
+      continue;
+    }
+    foreach ($settings['available_term_lengths'] as $term) {
+      $options[$bundle->label][$bundle->type . '|' . $term] = $term;
+    }
+  }
+  return $options;
+}
+
+/**
+ * Implements hook_uc_order().
+ *
+ * Payment can arrive before the account exists: an anonymous buyer's account
+ * is created when checkout completes, which may be after the payment gateway
+ * has already marked the order paid. Whichever of the two happens second does
+ * the work.
+ */
+function membership_entity_ubercart_uc_order($op, $order, $arg2) {
+  if ($op == 'update') {
+    membership_entity_ubercart_process_order($order, $arg2);
+  }
+}
+
+/**
+ * Implements hook_uc_checkout_complete().
+ */
+function membership_entity_ubercart_uc_checkout_complete($order, $account) {
+  // Only an account this checkout created. An existing member's billing
+  // address may be a business card or somebody else's paying for them, and
+  // must not land in the address their magazine goes to.
+  if ($account && !empty($order->data['complete_sale']) && $order->data['complete_sale'] == 'new_user' && membership_entity_ubercart_order_has_membership($order)) {
+    membership_entity_ubercart_copy_address($order, $account);
+  }
+
+  $status = db_query('SELECT order_status FROM {uc_orders} WHERE order_id = :order_id', array(
+    ':order_id' => $order->order_id,
+  ))->fetchField();
+  membership_entity_ubercart_process_order($order, $status);
+}
+
+/**
+ * Joins or renews the memberships an order has paid for.
+ *
+ * @param object $order
+ *   The Ubercart order.
+ * @param string $status
+ *   The order's status, which on a status change is the new one rather than
+ *   the one still on $order.
+ */
+function membership_entity_ubercart_process_order($order, $status) {
+  if (empty($order->uid) || empty($order->products)) {
+    return;
+  }
+  if (!in_array(uc_order_status_data($status, 'state'), array('payment_received', 'completed'))) {
+    return;
+  }
+
+  $account = user_load($order->uid);
+  if (!$account) {
+    return;
+  }
+
+  foreach ($order->products as $product) {
+    $feature = membership_entity_ubercart_product_membership($product);
+    if (!$feature || empty($product->order_product_id)) {
+      continue;
+    }
+
+    // Claim the order product before touching anything. The payment gateway's
+    // callback and the buyer's return to the site can arrive together, and the
+    // primary key lets exactly one of them through.
+    try {
+      db_insert('membership_entity_ubercart_orders')
+        ->fields(array(
+          'order_product_id' => $product->order_product_id,
+          'order_id' => $order->order_id,
+          'created' => REQUEST_TIME,
+        ))
+        ->execute();
+    }
+    catch (PDOException $e) {
+      continue;
+    }
+
+    try {
+      $membership = membership_entity_ubercart_apply($account, $feature, max(1, (int) $product->qty), $order);
+      db_update('membership_entity_ubercart_orders')
+        ->fields(array('mid' => $membership->mid))
+        ->condition('order_product_id', $product->order_product_id)
+        ->execute();
+    }
+    catch (Exception $e) {
+      // Release the claim, so that putting the order back through the same
+      // status once the cause is fixed tries again.
+      db_delete('membership_entity_ubercart_orders')
+        ->condition('order_product_id', $product->order_product_id)
+        ->execute();
+      watchdog_exception('membership_entity_ubercart', $e);
+      uc_order_comment_save($order->order_id, 0, t('The membership for @title could not be updated: @message. Check the membership by hand.', array(
+        '@title' => $product->title,
+        '@message' => $e->getMessage(),
+      )));
+    }
+  }
+}
+
+/**
+ * The membership feature matching an order product, if any.
+ *
+ * @param object $product
+ *   An order product.
+ *
+ * @return object|false
+ *   The feature row, preferring one for the product's own SKU over one for
+ *   any SKU.
+ */
+function membership_entity_ubercart_product_membership($product) {
+  return db_query_range("SELECT * FROM {membership_entity_ubercart_products} WHERE nid = :nid AND (model = :model OR model = '') ORDER BY model DESC", 0, 1, array(
+    ':nid' => $product->nid,
+    ':model' => $product->model,
+  ))->fetchObject();
+}
+
+/**
+ * Whether an order holds any product with a membership feature.
+ */
+function membership_entity_ubercart_order_has_membership($order) {
+  foreach ((array) $order->products as $product) {
+    if (membership_entity_ubercart_product_membership($product)) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * The parts of an Ubercart address that can be copied to the account.
+ *
+ * @return array
+ *   Labels keyed by the address part, which is the order property name
+ *   without its billing_ or delivery_ prefix.
+ */
+function membership_entity_ubercart_address_parts() {
+  return array(
+    'first_name' => t('First name'),
+    'last_name' => t('Last name'),
+    'company' => t('Company'),
+    'street1' => t('Street address 1'),
+    'street2' => t('Street address 2'),
+    'city' => t('City'),
+    'zone' => t('State/Province (as its name)'),
+    'postal_code' => t('Postal code'),
+    'country' => t('Country (as its name)'),
+    'phone' => t('Phone number'),
+  );
+}
+
+/**
+ * Copies the order's address into a new member's account.
+ *
+ * @param object $order
+ *   The order.
+ * @param object $account
+ *   The account checkout has just created.
+ */
+function membership_entity_ubercart_copy_address($order, $account) {
+  $config = config('membership_entity_ubercart.settings');
+  $map = array_filter((array) $config->get('address_fields'));
+  if (empty($map)) {
+    return;
+  }
+  $prefix = $config->get('address_source') == 'delivery' ? 'delivery_' : 'billing_';
+
+  $changed = FALSE;
+  foreach ($map as $part => $field_name) {
+    $instance = field_info_instance('user', $field_name, 'user');
+    if (!$instance || !isset($order->{$prefix . $part})) {
+      continue;
+    }
+
+    $value = $order->{$prefix . $part};
+    // Stored as ids on the order; an account wants something a person reads.
+    if ($part == 'zone') {
+      $value = $value ? uc_zone_get_by_id($value) : '';
+    }
+    elseif ($part == 'country') {
+      $value = $value ? uc_country_get_by_id($value) : '';
+    }
+
+    $value = trim((string) $value);
+    if ($value === '') {
+      continue;
+    }
+
+    $field = field_info_field($field_name);
+    if (!empty($field['settings']['max_length'])) {
+      $value = backdrop_substr($value, 0, $field['settings']['max_length']);
+    }
+    $account->{$field_name}[LANGUAGE_NONE][0]['value'] = $value;
+    $changed = TRUE;
+  }
+
+  if ($changed) {
+    $account->save();
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for membership_entity_global_settings_form().
+ */
+function membership_entity_ubercart_form_membership_entity_global_settings_form_alter(&$form, &$form_state) {
+  $config = config('membership_entity_ubercart.settings');
+
+  $form['ubercart_address'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('New members\' address from Ubercart'),
+    '#description' => t('When checkout creates an account for somebody buying a membership, copy their address from the order into these account fields. Existing accounts are never changed: a member paying with a business card, or for somebody else, would otherwise have the wrong address recorded.'),
+    '#tree' => TRUE,
+    '#weight' => 5,
+  );
+
+  $form['ubercart_address']['address_source'] = array(
+    '#type' => 'radios',
+    '#title' => t('Address'),
+    '#options' => array(
+      'billing' => t('Billing address'),
+      'delivery' => t('Delivery address (only collected for products that ship)'),
+    ),
+    '#default_value' => $config->get('address_source') ? $config->get('address_source') : 'billing',
+  );
+
+  $options = array('' => t('- Do not copy -'));
+  foreach (field_info_instances('user', 'user') as $field_name => $instance) {
+    $field = field_info_field($field_name);
+    if (in_array($field['type'], array('text', 'text_long'))) {
+      $options[$field_name] = $instance['label'] . ' (' . $field_name . ')';
+    }
+  }
+
+  $current = (array) $config->get('address_fields');
+  foreach (membership_entity_ubercart_address_parts() as $part => $label) {
+    $form['ubercart_address']['address_fields'][$part] = array(
+      '#type' => 'select',
+      '#title' => $label,
+      '#options' => $options,
+      '#default_value' => isset($current[$part]) && isset($options[$current[$part]]) ? $current[$part] : '',
+    );
+  }
+
+  $form['#submit'][] = 'membership_entity_ubercart_global_settings_submit';
+}
+
+/**
+ * Submit handler for the address settings on the global settings form.
+ */
+function membership_entity_ubercart_global_settings_submit($form, &$form_state) {
+  $values = $form_state['values']['ubercart_address'];
+  config('membership_entity_ubercart.settings')
+    ->set('address_source', $values['address_source'])
+    ->set('address_fields', $values['address_fields'])
+    ->save();
+}
+
+/**
+ * Adds the bought term to the buyer's membership, creating one if need be.
+ *
+ * @param object $account
+ *   The buyer.
+ * @param object $feature
+ *   The membership feature row: type and term.
+ * @param int $quantity
+ *   How many terms were bought; each runs on from the last.
+ * @param object $order
+ *   The order, for its comments.
+ *
+ * @return MembershipEntity
+ *   The membership joined or renewed.
+ */
+function membership_entity_ubercart_apply($account, $feature, $quantity, $order) {
+  $settings = membership_entity_get_bundle_settings($feature->type);
+  if (empty($settings) || !in_array($feature->term, $settings['available_term_lengths'])) {
+    throw new Exception(t('membership type @type no longer offers a @term term', array(
+      '@type' => $feature->type,
+      '@term' => $feature->term,
+    )));
+  }
+
+  // An active membership is renewed. A lapsed one is reinstated where the type
+  // says so, which is also a renewal: same record, same member id. Otherwise
+  // the buyer is joining.
+  $membership = membership_entity_load_by_user($account, $feature->type, TRUE);
+  if (!$membership || (int) $membership->status !== MEMBERSHIP_ENTITY_ACTIVE) {
+    $membership = membership_entity_membership_to_reinstate($account, $feature->type);
+  }
+
+  $renewal = (bool) $membership;
+  if (!$renewal) {
+    $membership = membership_entity_create(array(
+      'uid' => $account->uid,
+      'type' => $feature->type,
+    ));
+    membership_entity_save($membership);
+  }
+
+  for ($i = 0; $i < $quantity; $i++) {
+    // The start date hook reads the membership's latest term, which has just
+    // changed on every pass after the first.
+    entity_get_controller('membership_entity')->resetCache(array($membership->mid));
+
+    $term = membership_entity_term_create(array(
+      'mid' => $membership->mid,
+      'membership_entity_type' => $membership->type,
+      'term' => $feature->term,
+      'is_renewal' => $renewal || $i > 0,
+    ));
+
+    // The same start date the renew form would offer: on from the end of the
+    // last term within the grace period, otherwise today.
+    $start = new BackdropDateTime($term->start, 'UTC');
+    backdrop_alter('membership_entity_term_start_date', $start, $term);
+    $term->start = date_format_date($start, 'custom', DATE_FORMAT_DATETIME);
+
+    membership_entity_term_save($term);
+  }
+
+  $end = $term->end ? format_date(strtotime($term->end . ' UTC'), 'custom', 'j F Y') : t('lifetime');
+  uc_order_comment_save($order->order_id, 0, $renewal
+    ? t('Membership @member_id renewed, now running to @end.', array('@member_id' => $membership->member_id, '@end' => $end))
+    : t('Membership @member_id created, running to @end.', array('@member_id' => $membership->member_id, '@end' => $end)));
+
+  return $membership;
+}
+
+/**
+ * Membership products that Ubercart Roles also assigns a role for.
+ *
+ * Roles follow membership status here. A role feature on the same product runs
+ * its own expiry clock — a year, say, on a five year membership — and takes
+ * the role away while the membership is still active.
+ *
+ * @param int $nid
+ *   Limit the check to one product.
+ *
+ * @return array
+ *   Node ids of the conflicting products.
+ */
+function membership_entity_ubercart_role_conflicts($nid = NULL) {
+  if (!module_exists('uc_roles')) {
+    return array();
+  }
+
+  $query = db_select('membership_entity_ubercart_products', 'm');
+  $query->innerJoin('uc_roles_products', 'r', 'r.nid = m.nid');
+  $query->fields('m', array('nid'))->distinct();
+  if ($nid) {
+    $query->condition('m.nid', $nid);
+  }
+  return $query->execute()->fetchCol();
+}
+
+/**
+ * The warning for products that assign roles both ways.
+ *
+ * @param array $nids
+ *   Node ids from membership_entity_ubercart_role_conflicts().
+ *
+ * @return string
+ *   The message, linking each product's features page.
+ */
+function membership_entity_ubercart_role_conflict_message(array $nids) {
+  $links = array();
+  foreach (node_load_multiple($nids) as $node) {
+    $links[] = l($node->title, 'node/' . $node->nid . '/edit/features');
+  }
+
+  return t('These membership products also have a <em>Role assignment</em> feature: !products. Membership roles are granted and removed by the membership itself, and Ubercart Roles expires its role on its own schedule, so members can lose access while their membership is still active. Remove the Role assignment feature from these products.', array(
+    '!products' => implode(', ', $links),
+  ));
+}

@@ -1,0 +1,10 @@
+name = Membership Entity Ubercart
+description = Sell memberships with Ubercart: a product feature that creates or renews a membership when the order is paid.
+type = module
+package = Memberships
+backdrop = 1.x
+
+dependencies[] = membership_entity
+dependencies[] = membership_entity_term
+dependencies[] = uc_order
+dependencies[] = uc_product
