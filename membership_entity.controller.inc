@@ -18,6 +18,7 @@ class MembershipEntityController extends EntityPlusController {
     $values += array(
       'mid' => 0,
       'uid' => 0,
+      'pid' => 0,
       'member_id' => '',
       'type' => 'membership',
       'created' => REQUEST_TIME,
@@ -125,26 +126,37 @@ class MembershipEntityController extends EntityPlusController {
   public function save($membership, DatabaseTransaction $transaction = NULL) {
     $transaction = isset($transaction) ? $transaction : db_transaction();
     $data = membership_entity_get_bundle_settings($membership->type);
+    $original_status = NULL;
+    $original_pid = 0;
 
     try {
       $roles = array();
 
+      // Roles follow the effective status, not the stored one, so that a child
+      // membership under a lapsed parent grants nothing even while its own
+      // status remains active.
+      $effective = membership_entity_effective_status($membership);
+      $op = ($effective == MEMBERSHIP_ENTITY_ACTIVE) ? 'add' : 'remove';
+
       // Add or remove old roles depending on membership status.
       $roles[$membership->uid] = array(
         'rid' => $data['primary_role'],
-        'op' => ($membership->status == MEMBERSHIP_ENTITY_ACTIVE) ? 'add' : 'remove',
+        'op' => $op,
       );
       foreach ($membership->secondary_members as $uid) {
         $roles[$uid] = array(
           'rid' => $data['secondary_role'],
-          'op' => ($membership->status == MEMBERSHIP_ENTITY_ACTIVE) ? 'add' : 'remove',
+          'op' => $op,
         );
       }
 
       // Remove old roles.
       if (!empty($membership->mid)) {
         $params = array(':mid' => $membership->mid);
-        $original_uid = db_query('SELECT uid FROM {membership_entity} WHERE mid = :mid', $params)->fetchField();
+        $original = db_query('SELECT uid, status, pid FROM {membership_entity} WHERE mid = :mid', $params)->fetchObject();
+        $original_uid = $original ? $original->uid : NULL;
+        $original_status = $original ? (int) $original->status : NULL;
+        $original_pid = $original ? (int) $original->pid : 0;
         if ($membership->uid != $original_uid) {
           $roles[$original_uid] = array(
             'rid' => $data['primary_role'],
@@ -185,6 +197,20 @@ class MembershipEntityController extends EntityPlusController {
           ));
         }
         $query->execute();
+      }
+
+      // A change of status here changes what every child membership grants, so
+      // reapply their roles. Their own stored statuses are left alone.
+      if (isset($original_status) && $original_status != (int) $membership->status) {
+        _membership_entity_propagate_to_children($membership);
+      }
+
+      // A membership that has just been detached from its parent is on its own
+      // from here. Where the parent was paying for it, it has no term of its
+      // own and would otherwise never expire, so modules are given the chance
+      // to put that right — see membership_entity_term_membership_entity_uncoupled().
+      if (!empty($original_pid) && empty($membership->pid)) {
+        module_invoke_all('membership_entity_uncoupled', $membership, $original_pid);
       }
     }
     catch (Exception $e) {

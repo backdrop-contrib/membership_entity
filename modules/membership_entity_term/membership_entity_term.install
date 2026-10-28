@@ -6,6 +6,40 @@
  */
 
 /**
+ * Give every membership type's terms a note field.
+ */
+function membership_entity_term_update_1000() {
+  backdrop_load('module', 'membership_entity_term');
+
+  foreach (array_keys(membership_entity_get_bundles()) as $bundle) {
+    // The bundle was previously created under a prefixed name that nothing
+    // referred to. Make sure the real one exists before attaching to it.
+    field_attach_create_bundle('membership_entity_term', $bundle);
+    membership_entity_term_add_note_field($bundle);
+  }
+}
+
+/**
+ * Install the renewals view on sites already running this module.
+ *
+ * A view shipped in a module's config directory is only copied into active
+ * config when the module is installed, so an existing site gains nothing from
+ * one being added later. The tab it provides is registered by the view, which
+ * means without this the menu item does not exist either and the feature is
+ * simply absent, with nothing to say why.
+ */
+function membership_entity_term_update_1001() {
+  $name = 'views.view.membership_entity_renewals';
+
+  // Never overwrite a site that already has it — most likely because somebody
+  // built their own before this shipped, and theirs is the one in use.
+  if (config($name)->isNew()) {
+    config_install_default_config('membership_entity_term', $name);
+    menu_rebuild();
+  }
+}
+
+/**
  * Implements hook_schema().
  */
 function membership_entity_term_schema() {
@@ -102,4 +136,18 @@ function membership_entity_term_schema() {
   );
 
   return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ *
+ * Views shipped in a module's config directory are copied into active config
+ * on install and are not removed with it, so without this they outlive the
+ * module and reappear, broken, in the Views listing. The terms view has always
+ * been left behind; it is cleared here along with the renewals view.
+ */
+function membership_entity_term_uninstall() {
+  foreach (array('membership_entity_terms', 'membership_entity_renewals') as $name) {
+    config('views.view.' . $name)->delete();
+  }
 }

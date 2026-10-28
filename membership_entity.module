@@ -45,6 +45,8 @@ function membership_entity_autoload_info() {
     'views_handler_field_membership_primary_member' => 'views/views_handler_field_membership_primary_member.inc',
     'views_handler_field_membership_secondary_member' => 'views/views_handler_field_membership_secondary_member.inc',
     'views_handler_field_membership_link' => 'views/views_handler_field_membership_link.inc',
+    'views_handler_field_membership_child_count' => 'views/views_handler_field_membership_child_count.inc',
+    'views_handler_field_membership_effective_status' => 'views/views_handler_field_membership_effective_status.inc',
     //'MigrateDestinationMembershipEntity' => 'membership_entity.migrate.inc',
   );
 }
@@ -118,6 +120,11 @@ function membership_entity_permission() {
   $permissions = array(
     'administer memberships' => array(
       'title' => t('Administer memberships'),
+      'restrict access' => TRUE,
+    ),
+    'delete retained memberships' => array(
+      'title' => t('Delete memberships that are still within their retention period'),
+      'description' => t('Membership records are often kept for a fixed period after they lapse, and for an organisation running a block insurance scheme they are insurance records. This permission overrides that, and destroys the record.'),
       'restrict access' => TRUE,
     ),
   );
@@ -223,7 +230,64 @@ function membership_entity_membership_entity_access($op, $membership = NULL, $ac
       }
     }
   }
+
+  // Sub-member administration: the head of a household or the secretary of an
+  // association managing the memberships beneath their own. Deliberately no
+  // 'delete' — removing someone from an association detaches them and leaves
+  // their membership and account intact. Destroying either stays with the site
+  // administrator, or with the member themselves via 'delete own membership'.
+  if (is_object($membership) && in_array($op, array('view', 'edit'), TRUE)) {
+    if (membership_entity_manages_sub_membership($op, $membership, $user)) {
+      return TRUE;
+    }
+  }
+
   return FALSE;
+}
+
+/**
+ * Whether an account administers a membership by virtue of holding its parent.
+ *
+ * Backdrop roles are global, so "only the members of my own association" cannot
+ * be expressed by a permission alone — it depends on the relationship between
+ * two memberships. The permission is checked against the *parent's* type,
+ * because the capability comes from being the head of that household or
+ * association.
+ *
+ * @param string $op
+ *   One of view, edit, create or detach. There is no delete: an association
+ *   removes a member by detaching them, never by destroying their record.
+ * @param MembershipEntity|int $membership
+ *   The sub-membership being acted on, or the parent's mid when $op is
+ *   'create' — there is no sub-membership yet in that case.
+ * @param object $account
+ *   The account to check. Defaults to the logged in user.
+ *
+ * @return bool
+ *   TRUE if the account may perform the operation on that sub-membership.
+ */
+function membership_entity_manages_sub_membership($op, $membership, $account = NULL) {
+  $user = isset($account) ? $account : $GLOBALS['user'];
+  if (empty($user->uid)) {
+    return FALSE;
+  }
+
+  $pid = is_object($membership) ? $membership->pid : $membership;
+  if (empty($pid)) {
+    return FALSE;
+  }
+
+  $parent = db_query('SELECT uid, type FROM {membership_entity} WHERE mid = :mid', array(
+    ':mid' => $pid,
+  ))->fetchObject();
+
+  // Only the parent's primary member administers its sub-members. Secondary
+  // members of the parent deliberately do not inherit this.
+  if (empty($parent) || $parent->uid != $user->uid) {
+    return FALSE;
+  }
+
+  return user_access($parent->type . ' ' . $op . ' sub-memberships', $user);
 }
 
 /**
@@ -239,6 +303,16 @@ function membership_entity_menu() {
   $items['admin/memberships/list'] = array(
     'title' => 'List',
     'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+
+  $items['admin/memberships/settings'] = array(
+    'title' => 'Settings',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('membership_entity_global_settings_form'),
+    'access arguments' => array('administer memberships'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 50,
+    'file' => 'membership_entity.pages.inc',
   );
 
   $items['admin/memberships/add'] = array(
@@ -269,8 +343,8 @@ function membership_entity_menu() {
 
   $items['user/join'] = array(
     'title' => 'Join',
-    'page callback' => 'backdrop_get_form',
-    'page arguments' => array('membership_entity_join_form'),
+    'page callback' => 'membership_entity_join_page',
+    'page arguments' => array('membership'),
     'access callback' => 'membership_entity_access',
     'access arguments' => array('join', 'membership'),
     'type' => MENU_LOCAL_TASK | MENU_NORMAL_ITEM,
@@ -315,6 +389,30 @@ function membership_entity_menu() {
     'file' => 'membership_entity.pages.inc',
   );
 
+  // Adding a sub-member is reachable from the parent's own page, which is
+  // where the household head or association secretary is standing when they
+  // decide to do it. Without this the feature exists only on the generic add
+  // form, and is easily mistaken for the secondary member field.
+  $items['membership/%membership_entity/add-sub-member'] = array(
+    'title' => 'Add sub-member',
+    'page callback' => 'membership_entity_add_sub_member_page',
+    'page arguments' => array(1),
+    'access callback' => 'membership_entity_add_sub_member_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 3,
+    'file' => 'membership_entity.pages.inc',
+  );
+  $items['membership/%membership_entity/add-sub-member/%'] = array(
+    'title' => 'Add sub-member',
+    'page callback' => 'membership_entity_add_sub_member_page',
+    'page arguments' => array(1, 3),
+    'access callback' => 'membership_entity_add_sub_member_access',
+    'access arguments' => array(1),
+    'type' => MENU_CALLBACK,
+    'file' => 'membership_entity.pages.inc',
+  );
+
   // Add support for devel generate.
   if (module_exists('devel_generate')) {
     $items['admin/config/development/generate/membership-entity'] = array(
@@ -344,6 +442,33 @@ function membership_entity_menu_alter(&$items) {
  */
 function membership_entity_register_access() {
   return !config_get('membership_entity.settings','membership_entity_required') && user_register_access();
+}
+
+/**
+ * Implements hook_init().
+ *
+ * Sends the join and renew pages to the site's own pages where configured,
+ * typically a shop product that takes the subscription. Done here rather than
+ * in hook_menu_alter() because membership_entity_type replaces the page
+ * callbacks after ours runs, and registers a path per membership type.
+ */
+function membership_entity_init() {
+  $path = current_path();
+
+  if (preg_match('#^user/join(/|$)#', $path)) {
+    $target = config_get('membership_entity.settings', 'join_path');
+  }
+  elseif (preg_match('#^user/renew(/|$)#', $path)) {
+    $target = config_get('membership_entity.settings', 'renew_path');
+  }
+  // Administrators keep the renew form, to record a renewal paid offline.
+  elseif (preg_match('#^membership/\d+/renew$#', $path) && !user_access('administer membership terms')) {
+    $target = config_get('membership_entity.settings', 'renew_path');
+  }
+
+  if (!empty($target)) {
+    backdrop_goto($target);
+  }
 }
 
 /**
@@ -481,14 +606,18 @@ function membership_entity_view($membership, $view_mode = 'full', $langcode = NU
 
   // Add the primary membership on full membership page.
   if ($view_mode == 'full') {
-    $account = user_load($membership->uid);
+    $account = !empty($membership->uid) ? user_load($membership->uid) : FALSE;
     $membership->content['uid'] = array(
+      '#weight' => -10,
       'label' => array(
         '#theme_wrappers' => array('container'),
         '#attributes' => array('class' => array('membership-entity-label')),
-        '#markup' => t('Primary Member:!nbsp', array('!nbsp' => '&nbsp')),
+        '#markup' => t('Primary Member:&nbsp;'),
       ),
-      'link' => array(
+    );
+
+    if ($account) {
+      $membership->content['uid']['link'] = array(
         '#type' => 'link',
         '#title' => format_username($account),
         '#href' => 'user/' . $account->uid,
@@ -496,6 +625,37 @@ function membership_entity_view($membership, $view_mode = 'full', $langcode = NU
           'attributes' => array('class' => array('membership-entity-primary-member')),
           'html' => FALSE,
         ),
+      );
+    }
+    else {
+      // Retained past the deletion of the account it belonged to. There is
+      // nobody to link to, but the record still has to say whose it was.
+      $membership->content['uid']['name'] = array(
+        '#theme_wrappers' => array('container'),
+        '#attributes' => array('class' => array('membership-entity-primary-member', 'membership-entity-member-removed')),
+        '#markup' => check_plain(membership_entity_member_name($membership)),
+      );
+    }
+  }
+
+  // When they joined, and how long ago that was. The joining date is stored and
+  // is frequently much earlier than the oldest surviving term, so it is the only
+  // place this can be read from.
+  if ($view_mode == 'full' && !empty($membership->created)) {
+    $membership->content['joined'] = array(
+      '#weight' => -9,
+      'label' => array(
+        '#theme_wrappers' => array('container'),
+        '#attributes' => array('class' => array('membership-entity-label')),
+        '#markup' => t('Joined:&nbsp;'),
+      ),
+      'value' => array(
+        '#theme_wrappers' => array('container'),
+        '#attributes' => array('class' => array('membership-entity-joined')),
+        '#markup' => t('@date (member for @duration)', array(
+          '@date' => format_date($membership->created, 'date_only'),
+          '@duration' => membership_entity_format_duration($membership->created),
+        )),
       ),
     );
   }
@@ -510,10 +670,11 @@ function membership_entity_view($membership, $view_mode = 'full', $langcode = NU
     }
 
     $membership->content['secondary_members'] = array(
+      '#weight' => -7,
       'label' => array(
         '#theme_wrappers' => array('container'),
         '#attributes' => array('class' => array('membership-entity-label')),
-        '#markup' => format_plural(count($links), 'Secondary Member:', 'Secondary Members:') . '&nbsp',
+        '#markup' => format_plural(count($links), 'Secondary Member:', 'Secondary Members:') . '&nbsp;',
       ),
     );
     if (count($links) == 1) {
@@ -533,6 +694,82 @@ function membership_entity_view($membership, $view_mode = 'full', $langcode = NU
         '#theme' => 'links',
         '#links' => $links,
         '#attributes' => array('class' => array('membership-entity-secondary-members')),
+      );
+    }
+  }
+
+  // Show the memberships that belong to this one, and the one it belongs to.
+  // Without this the hierarchy is invisible on the page where an administrator
+  // is most likely to look for it, and sub-members are easily confused with
+  // secondary members, who share this membership rather than holding their own.
+  if ($view_mode == 'full') {
+    if (!empty($membership->pid) && $parent = membership_entity_load($membership->pid)) {
+      $membership->content['parent_membership'] = array(
+        '#weight' => -8,
+        'label' => array(
+          '#theme_wrappers' => array('container'),
+          '#attributes' => array('class' => array('membership-entity-label')),
+          '#markup' => t('Belongs to:&nbsp;'),
+        ),
+        'link' => array(
+          '#type' => 'link',
+          '#title' => t('@id (@name)', array(
+            '@id' => $parent->member_id,
+            '@name' => membership_entity_member_name($parent),
+          )),
+          '#href' => 'membership/' . $parent->mid,
+          '#options' => array(
+            'attributes' => array('class' => array('membership-entity-parent')),
+            'html' => FALSE,
+          ),
+        ),
+      );
+    }
+
+    if ($child_mids = membership_entity_child_mids($membership->mid)) {
+      $statuses = membership_entity_get_status_list();
+      $links = array();
+      $needing_attention = 0;
+
+      foreach (membership_entity_load_multiple($child_mids) as $child) {
+        // The status that actually governs their access, not the stored one.
+        // A sub-member reading "Active" while the membership above them has
+        // lapsed is exactly the confusion the cascade was built to resolve, and
+        // this is the page where somebody would go looking.
+        $effective = membership_entity_effective_status($child);
+        if ($effective != MEMBERSHIP_ENTITY_ACTIVE) {
+          $needing_attention++;
+        }
+
+        $links[] = array(
+          'title' => t('@id — @name (@status)', array(
+            '@id' => $child->member_id,
+            '@name' => membership_entity_member_name($child),
+            '@status' => $statuses[$effective],
+          )),
+          'href' => 'membership/' . $child->mid,
+          'attributes' => array(
+            'class' => array('membership-entity-child', 'membership-' . backdrop_html_class($statuses[$effective])),
+          ),
+        );
+      }
+
+      $membership->content['child_memberships'] = array(
+        '#weight' => -6,
+        'label' => array(
+          '#theme_wrappers' => array('container'),
+          '#attributes' => array('class' => array('membership-entity-label')),
+          '#markup' => $needing_attention
+            ? format_plural($needing_attention,
+              t('Sub-members (@count not currently active):', array('@count' => $needing_attention)),
+              t('Sub-members (@count not currently active):', array('@count' => $needing_attention))) . '&nbsp;'
+            : format_plural(count($links), 'Sub-member:', 'Sub-members:') . '&nbsp;',
+        ),
+        'links' => array(
+          '#theme' => 'links',
+          '#links' => $links,
+          '#attributes' => array('class' => array('membership-entity-child-memberships')),
+        ),
       );
     }
   }
@@ -613,6 +850,15 @@ function membership_entity_field_info_alter(&$info) {
   // Add the 'membership_entity_join_form' instance setting to all field types.
   foreach ($info as $field_type => $field_type_info) {
     $info[$field_type]['instance_settings']['membership_entity_join_form'] = FALSE;
+
+    // Any text field can be declared a membership number, which is all an
+    // organisation's own numbering needs: no new field type, so the field keeps
+    // working with whatever widget and importer the site already uses, and a
+    // site that does not want one never sees any of this.
+    if ($field_type == 'text') {
+      $info[$field_type]['instance_settings']['membership_entity_member_number'] = FALSE;
+      $info[$field_type]['instance_settings']['membership_entity_member_number_scope'] = 'parent';
+    }
   }
 }
 
@@ -630,7 +876,7 @@ function membership_entity_field_extra_fields() {
         ),
         'membership' => array(
           'label' => t('Membership Information'),
-          'description' => t('Member ID, primary and secondary members, status, etc.'),
+          'description' => t('Site id number, primary and secondary members, status, etc.'),
           'weight' => 0,
         ),
       ),
@@ -692,8 +938,138 @@ function membership_entity_form_field_ui_field_edit_form_alter(&$form, &$form_st
       ),
     );
 
+    if ($instance['entity_type'] == 'membership_entity' && $form['#field']['type'] == 'text') {
+      $form['instance']['settings']['membership_entity_member_number'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('This field is a membership number'),
+        '#description' => t('Checks that no two memberships are given the same value. Use it for an organisation\'s own numbering, alongside the membership id this site issues.'),
+        '#default_value' => !empty($instance['settings']['membership_entity_member_number']),
+      );
+
+      $form['instance']['settings']['membership_entity_member_number_scope'] = array(
+        '#type' => 'radios',
+        '#title' => t('Numbers must be unique'),
+        '#options' => array(
+          'parent' => t('within each household or association'),
+          'site' => t('across the whole site'),
+        ),
+        '#default_value' => isset($instance['settings']['membership_entity_member_number_scope']) ? $instance['settings']['membership_entity_member_number_scope'] : 'parent',
+        '#description' => t('Numbering within each association lets two associations both have a member 001, which is usually what an organisation of organisations wants. A membership with no parent is compared against the other memberships that have no parent.'),
+        '#states' => array(
+          'visible' => array(
+            ':input[name="instance[settings][membership_entity_member_number]"]' => array('checked' => TRUE),
+          ),
+        ),
+      );
+    }
+
     array_unshift($form['#submit'], 'membership_entity_form_field_ui_field_edit_form_submit');
   }
+}
+
+/**
+ * Implements hook_field_attach_validate().
+ *
+ * Checks the fields a site has declared to be membership numbers.
+ *
+ * Note this is a check and not a guarantee. Field storage supports indexes but
+ * not unique keys, and a field's table holds the entity id rather than the
+ * parent, so uniqueness within an association could not be a database
+ * constraint however it were declared. Two people saving the same number in the
+ * same instant would both pass. For numbers entered by hand on an admin screen
+ * that is proportionate; if these ever become numbers that must not collide,
+ * they need a real column with a composite unique key instead.
+ */
+function membership_entity_field_attach_validate($entity_type, $entity, &$errors) {
+  if ($entity_type != 'membership_entity') {
+    return;
+  }
+
+  foreach (field_info_instances('membership_entity', $entity->type) as $field_name => $instance) {
+    if (empty($instance['settings']['membership_entity_member_number'])) {
+      continue;
+    }
+
+    $items = field_get_items('membership_entity', $entity, $field_name);
+    if (empty($items)) {
+      continue;
+    }
+
+    $scope = isset($instance['settings']['membership_entity_member_number_scope'])
+      ? $instance['settings']['membership_entity_member_number_scope']
+      : 'parent';
+    $langcode = field_language('membership_entity', $entity, $field_name);
+
+    foreach ($items as $delta => $item) {
+      if (!isset($item['value']) || trim($item['value']) === '') {
+        continue;
+      }
+
+      $holder = membership_entity_member_number_holder($entity, $field_name, $item['value'], $scope);
+      if (!$holder) {
+        continue;
+      }
+
+      $errors[$field_name][$langcode][$delta][] = array(
+        'error' => 'membership_entity_member_number_taken',
+        'message' => t('%label %value is already used by membership %member_id.', array(
+          '%label' => $instance['label'],
+          '%value' => $item['value'],
+          '%member_id' => $holder->member_id,
+        )),
+      );
+    }
+  }
+}
+
+/**
+ * The membership already holding a given number, if any.
+ *
+ * @param object $entity
+ *   The membership being saved. Deliberately not type hinted: Field API
+ *   validation on this module's forms runs against a pseudo-entity cast from
+ *   the submitted values (_membership_entity_form_field_validate()), which is a
+ *   plain object rather than a MembershipEntity. Only mid, pid and type are
+ *   read, and the pseudo-entity carries all three.
+ * @param string $field_name
+ *   The field carrying the number.
+ * @param string $value
+ *   The number entered.
+ * @param string $scope
+ *   'parent' to compare only against memberships sharing a parent, 'site' to
+ *   compare against every membership.
+ *
+ * @return object|false
+ *   The membership already using it, or FALSE.
+ */
+function membership_entity_member_number_holder($entity, $field_name, $value, $scope) {
+  $table = 'field_data_' . $field_name;
+  if (!db_table_exists($table)) {
+    return FALSE;
+  }
+
+  $query = db_select($table, 'f');
+  $query->join('membership_entity', 'm', 'm.mid = f.entity_id');
+  $query->fields('m', array('mid', 'member_id'))
+    ->condition('f.entity_type', 'membership_entity')
+    ->condition('f.deleted', 0)
+    ->condition('f.' . $field_name . '_value', trim($value))
+    ->range(0, 1);
+
+  if (!empty($entity->mid)) {
+    $query->condition('m.mid', $entity->mid, '<>');
+  }
+
+  // Numbering within each association is what lets two associations both have a
+  // member 001. A membership with no parent is compared against the other
+  // memberships that have no parent, which keeps top level numbering unique
+  // without it having to be a separate setting.
+  if ($scope != 'site') {
+    $query->condition('m.pid', !empty($entity->pid) ? $entity->pid : 0);
+  }
+
+  $result = $query->execute()->fetchObject();
+  return $result ? $result : FALSE;
 }
 
 /**
@@ -845,6 +1221,23 @@ function membership_entity_membership_entity_bundle_settings_defaults() {
     'secondary_role' => '',
     'member_id_format' => 'membership_entity_numeric_member_id',
     'member_id_settings' => array(),
+    // Hierarchy defaults are deliberately inert: an existing site gains no
+    // child memberships until an administrator raises max_children.
+    'max_children' => 0,
+    'child_terms' => 'own',
+    // What happens when somebody who has lapsed comes back. Reinstating keeps
+    // their member number, which is what most organisations mean by "they are
+    // still member 8570, they just went away for a while".
+    'rejoin_policy' => 'reinstate',
+    // Whether one person may hold more than one membership of this type at
+    // once. Off matches how the module has always behaved; on is what a body
+    // whose members belong to several branches or associations needs.
+    'multiple_memberships' => 0,
+    // How long a lapsed membership is kept before it may be removed. A year
+    // covers the ordinary case of a member who has been chased a couple of
+    // times and has not come back; organisations that must keep records for
+    // longer, such as anyone running a block insurance scheme, set their own.
+    'retention_period' => '1 year',
   );
 }
 
@@ -941,14 +1334,19 @@ function membership_entity_membership_entity_member_id_info() {
     'class' => 'MembershipEntityNumericMemberId',
     'path' => backdrop_get_path('module', 'membership_entity') . '/plugins/member_id',
   );
-  if (module_exists('token')) {
-    $info['membership_entity_token_member_id'] = array(
-      'title' => t('Token ID'),
-      'description' => t('A member id built with tokens.'),
-      'class' => 'MembershipEntityTokenMemberId',
-      'path' => backdrop_get_path('module', 'membership_entity') . '/plugins/member_id',
-    );
-  }
+
+  // Registered unconditionally. The Drupal 7 original gated this on the token
+  // contrib module, which does not exist for Backdrop: token_replace(),
+  // token_scan(), token_get_invalid_tokens_by_context() and the token_tree
+  // theme hook are all core here. The gate therefore hid the plugin on every
+  // Backdrop site, leaving the numeric generator as the only choice.
+  $info['membership_entity_token_member_id'] = array(
+    'title' => t('Token ID'),
+    'description' => t('A member id built with tokens.'),
+    'class' => 'MembershipEntityTokenMemberId',
+    'path' => backdrop_get_path('module', 'membership_entity') . '/plugins/member_id',
+  );
+
   return $info;
 }
 
@@ -985,9 +1383,35 @@ function membership_entity_user_delete($account) {
   $deleting = &backdrop_static('membership_entity_deleting_users', array());
   $deleting[$account->uid] = $account->uid;
 
-  // Delete primary memberships.
+  // Delete primary memberships — except any the retention policy is keeping.
+  // Those are usually insurance or audit records, and losing them because
+  // somebody tidied up a user account is exactly the accident the policy
+  // exists to prevent. The account still goes; the record stays, and
+  // membership_entity_form_user_cancel_confirm_form_alter() warns first.
   $memberships = membership_entity_load_by_user($account->uid);
   foreach ($memberships as $membership) {
+    if (membership_entity_is_retained($membership)) {
+      // Reaching here at all is the exception. The cancellation forms take the
+      // deleting options away while a record is being kept, and steer to
+      // disabling the account instead, which keeps the address and contact
+      // details the record was made with. This is the backstop for the routes
+      // that do not go through a form: user_delete() called from a script or
+      // another module, and an administrator who holds the permission to
+      // override retention. The record still has to say whose it was — an
+      // insurance record naming nobody is not a record.
+      $membership->member_name = format_username($account);
+      db_update('membership_entity')
+        ->fields(array('member_name' => $membership->member_name))
+        ->condition('mid', $membership->mid)
+        ->execute();
+
+      watchdog('membership_entity', 'Kept membership %member_id for %name after deleting their account: it is within its retention period.', array(
+        '%member_id' => $membership->member_id,
+        '%name' => $membership->member_name,
+      ), WATCHDOG_NOTICE);
+      continue;
+    }
+
     membership_entity_delete($membership->mid);
   }
 
@@ -1048,7 +1472,14 @@ function membership_entity_member_select_process($element, &$form_state, $comple
   }
 
   if ($element['#cardinality'] == FIELD_CARDINALITY_UNLIMITED) {
-    $max = $form_state['items_count'][$element['#name']];
+    // The count is only recorded above when the value is an array, so an
+    // element that has never held one leaves it unset. Reading it unguarded
+    // warned twice on every render of an unlimited member select — "Undefined
+    // array key" and then "Trying to access array offset on value of type
+    // null" — and left $max as NULL.
+    $max = isset($form_state['items_count'][$element['#name']])
+      ? $form_state['items_count'][$element['#name']]
+      : 0;
   }
   else {
     $max = $element['#cardinality'] - 1;
@@ -1065,11 +1496,15 @@ function membership_entity_member_select_process($element, &$form_state, $comple
     );
   }
   else {
-    // Single value is displayed in a fieldset.
-    $field_element = array(
-      '#prefix' => '<label>' . $element['#title'] . '</label>',
-      '#tree' => TRUE,
-    );
+    // Single value is displayed in a fieldset. A caller that has already
+    // labelled the field — or that is offering it as one branch of a choice,
+    // where the inner "Select an existing account" says everything needed —
+    // passes an empty title, and gets no empty <label> element for it.
+    $field_element = array('#tree' => TRUE);
+
+    if ($element['#title'] !== '') {
+      $field_element['#prefix'] = '<label>' . $element['#title'] . '</label>';
+    }
   }
 
   $field_element += $element;
@@ -1355,6 +1790,1033 @@ function membership_entity_delete($mid) {
  */
 function membership_entity_delete_multiple(array $mids) {
   entity_delete_multiple('membership_entity', $mids);
+}
+
+/**
+ * Determine the status that actually governs a membership's access.
+ *
+ * A child membership only grants access while its parent is also active, so
+ * that revoking an organisation's membership revokes everyone beneath it. The
+ * child's own stored status is never rewritten by this: leaving it intact is
+ * what allows an organisation to be reinstated and restore exactly the members
+ * who were active before it lapsed.
+ *
+ * Where the parent is what blocks, the parent's status is returned rather than
+ * a flat expiry, so the reason remains visible to the member and to the admin.
+ *
+ * Memberships are limited to two levels, so the parent can never itself have a
+ * parent and no recursion is required here.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to resolve.
+ *
+ * @return int
+ *   One of the MEMBERSHIP_ENTITY_* status constants.
+ */
+function membership_entity_effective_status(MembershipEntity $membership) {
+  $status = (int) $membership->status;
+
+  // Only an otherwise active membership can be blocked by its parent. A
+  // membership that has already expired on its own terms stays that way.
+  if (!empty($membership->pid) && $status == MEMBERSHIP_ENTITY_ACTIVE) {
+    $parent_status = db_query('SELECT status FROM {membership_entity} WHERE mid = :mid', array(
+      ':mid' => $membership->pid,
+    ))->fetchField();
+
+    // A missing parent leaves the membership governed by its own status.
+    if ($parent_status !== FALSE && (int) $parent_status != MEMBERSHIP_ENTITY_ACTIVE) {
+      $status = (int) $parent_status;
+    }
+  }
+
+  backdrop_alter('membership_entity_effective_status', $status, $membership);
+  return $status;
+}
+
+/**
+ * Whether the current user may create the primary member's account from the
+ * membership form.
+ *
+ * Offered only while adding a membership, never while editing one: changing who
+ * a membership belongs to is a different act from naming who it is for, and
+ * conflating them would let an edit silently mint accounts.
+ *
+ * An association secretary is included deliberately, even though they cannot
+ * "administer users". Adding somebody who has no account is the whole point of
+ * the feature, and what they can create is bounded: an ordinary authenticated
+ * account with a random password and no roles of its own. Roles arrive only
+ * through membership status, by way of the controller.
+ *
+ * @param MembershipEntity $membership
+ *   The membership being added.
+ *
+ * @return bool
+ *   TRUE if the account creation fields should be offered.
+ */
+function membership_entity_may_create_member_account(MembershipEntity $membership) {
+  if (!empty($membership->mid)) {
+    return FALSE;
+  }
+
+  if (user_access('administer memberships') || user_access('administer users')) {
+    return TRUE;
+  }
+
+  return !empty($membership->pid)
+    && membership_entity_manages_sub_membership('create', $membership->pid);
+}
+
+/**
+ * How long something has lasted, counted on the calendar.
+ *
+ * Deliberately not format_interval(), which works from flat 365 day years and
+ * 30 day months and so drifts — a span of exactly ten years comes back from it
+ * as nine (backdrop core issue 7069). DateTime::diff() counts real months and
+ * real years, including the leap days, which is what somebody reading "member
+ * for 21 years" expects it to mean.
+ *
+ * @param int $from
+ *   A timestamp to count from.
+ * @param int $to
+ *   A timestamp to count to. Defaults to now.
+ *
+ * @return string
+ *   A translated span, to at most two units.
+ */
+function membership_entity_format_duration($from, $to = NULL) {
+  $to = isset($to) ? $to : REQUEST_TIME;
+
+  $diff = date_diff(
+    date_create('@' . $from)->setTimezone(new DateTimeZone(backdrop_get_user_timezone())),
+    date_create('@' . $to)->setTimezone(new DateTimeZone(backdrop_get_user_timezone()))
+  );
+
+  $parts = array();
+  if ($diff->y) {
+    $parts[] = format_plural($diff->y, '1 year', '@count years');
+  }
+  if ($diff->m && count($parts) < 2) {
+    $parts[] = format_plural($diff->m, '1 month', '@count months');
+  }
+  if (empty($parts)) {
+    $parts[] = format_plural($diff->d, '1 day', '@count days');
+  }
+
+  return implode(' ', $parts);
+}
+
+/**
+ * The name of a membership's primary member.
+ *
+ * A membership kept past the deletion of its user account has no account to ask,
+ * so the name recorded at that moment is used instead. Callers should use this
+ * rather than format_username(user_load($membership->uid)), which returns
+ * nothing at all for a membership whose member has gone.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to name.
+ *
+ * @return string
+ *   A plain, unsanitised name.
+ */
+function membership_entity_member_name(MembershipEntity $membership) {
+  if (!empty($membership->uid) && ($account = user_load($membership->uid))) {
+    return format_username($account);
+  }
+
+  if (!empty($membership->member_name)) {
+    return $membership->member_name;
+  }
+
+  return t('(member removed)');
+}
+
+/**
+ * A current membership of this type already held by this person, if any.
+ *
+ * One membership per person per type was assumed by the original module rather
+ * than decided, and it rules out three things that are now supported: rejoining
+ * while the lapsed record is still being kept, belonging to two associations at
+ * once, and deliberately being a member of more than one branch. The membership
+ * type says which it wants.
+ *
+ * Only a membership that is still current counts. A lapsed one is either
+ * reinstated on renewal or left alone as history; either way it is not a reason
+ * to refuse a new one.
+ *
+ * @param int $uid
+ *   The user who would hold the membership.
+ * @param string $type
+ *   The membership type.
+ * @param int $exclude_mid
+ *   A membership id to ignore, being the one under edit.
+ *
+ * @return int|false
+ *   The membership id standing in the way, or FALSE if nothing does.
+ */
+function membership_entity_conflicting_membership($uid, $type, $exclude_mid = 0) {
+  if (empty($uid) || membership_entity_allows_multiple_memberships($type)) {
+    return FALSE;
+  }
+
+  $mid = db_query_range('SELECT mid FROM {membership_entity} WHERE uid = :uid AND type = :type AND status = :status AND mid <> :mid', 0, 1, array(
+    ':uid' => $uid,
+    ':type' => $type,
+    ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ':mid' => (int) $exclude_mid,
+  ))->fetchField();
+
+  return $mid ? (int) $mid : FALSE;
+}
+
+/**
+ * Whether a membership can be renewed right now.
+ *
+ * Wraps the term module's access check so callers do not have to know whether
+ * that module is enabled. Without it there is no renewing at all, and a
+ * rejoining member has to be given a new membership whatever the type says.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to test.
+ *
+ * @return bool
+ *   TRUE if the renew form would accept it.
+ */
+function membership_entity_term_access_renew(MembershipEntity $membership) {
+  if (!module_exists('membership_entity_term')) {
+    return FALSE;
+  }
+
+  return (bool) membership_entity_term_access('renew', $membership);
+}
+
+/**
+ * The membership a rejoining member should be given back, if any.
+ *
+ * Where the type reinstates rather than reissuing, somebody coming back after a
+ * lapse carries on with the membership they had — same record, same member
+ * number, same history, with the gap left visible in the term ledger. The
+ * alternative is a second membership and a second number, which is what this
+ * module did unconditionally until now.
+ *
+ * Only a membership that has lapsed is offered back. An active one is not a
+ * rejoin, it is a renewal, and the two are different acts.
+ *
+ * @param object $account
+ *   The user coming back.
+ * @param string $type
+ *   The membership type being joined.
+ *
+ * @return MembershipEntity|false
+ *   The membership to reinstate, or FALSE to create a new one.
+ */
+function membership_entity_membership_to_reinstate($account, $type) {
+  $settings = membership_entity_get_bundle_settings($type);
+  if (empty($settings['rejoin_policy']) || $settings['rejoin_policy'] != 'reinstate') {
+    return FALSE;
+  }
+
+  $uid = is_object($account) ? $account->uid : $account;
+  if (empty($uid)) {
+    return FALSE;
+  }
+
+  $candidates = array();
+  foreach (membership_entity_load_by_user($uid, NULL, TRUE) as $membership) {
+    if ($membership->type == $type && (int) $membership->status !== MEMBERSHIP_ENTITY_ACTIVE) {
+      $candidates[$membership->mid] = $membership;
+    }
+  }
+
+  if (empty($candidates)) {
+    return FALSE;
+  }
+
+  // The most recent, by mid. Somebody who has been round this loop more than
+  // once should come back to where they left off, not to their first ever
+  // membership — the same reasoning as the generic renew page.
+  return $candidates[max(array_keys($candidates))];
+}
+
+/**
+ * Whether a person may hold more than one membership of a type at once.
+ *
+ * @param string $type
+ *   The membership type.
+ *
+ * @return bool
+ *   TRUE if a second concurrent membership is allowed.
+ */
+function membership_entity_allows_multiple_memberships($type) {
+  $settings = membership_entity_get_bundle_settings($type);
+  return !empty($settings['multiple_memberships']);
+}
+
+/**
+ * The retention periods a membership type may be given.
+ *
+ * @return array
+ *   Period strings, understood by strtotime(), keyed for a select list.
+ */
+function membership_entity_retention_periods() {
+  return array(
+    '' => t('Remove as soon as an administrator chooses'),
+    '6 months' => t('6 months after it lapses'),
+    '1 year' => t('1 year after it lapses'),
+    '2 years' => t('2 years after it lapses'),
+    '3 years' => t('3 years after it lapses'),
+    '6 years' => t('6 years after it lapses'),
+    '7 years' => t('7 years after it lapses'),
+    '10 years' => t('10 years after it lapses'),
+    'forever' => t('Keep indefinitely'),
+  );
+}
+
+/**
+ * When a membership stopped being current.
+ *
+ * The end of its last term is the honest answer where there is one, because
+ * that is the date cover actually stopped rather than the date somebody got
+ * round to recording it. A membership that never had a term falls back to when
+ * it was last changed.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to date.
+ *
+ * @return int|null
+ *   A timestamp, or NULL if the membership is still active.
+ */
+function membership_entity_lapsed_date(MembershipEntity $membership) {
+  if ((int) $membership->status === MEMBERSHIP_ENTITY_ACTIVE) {
+    return NULL;
+  }
+
+  $end = db_query('SELECT MAX(end) FROM {membership_entity_term} WHERE mid = :mid', array(
+    ':mid' => $membership->mid,
+  ))->fetchField();
+
+  if (!empty($end)) {
+    return strtotime($end);
+  }
+
+  return !empty($membership->changed) ? (int) $membership->changed : NULL;
+}
+
+/**
+ * The date a lapsed membership may be removed.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to test.
+ *
+ * @return int|false|null
+ *   A timestamp, FALSE where the record is to be kept indefinitely, or NULL
+ *   where nothing stands in the way of removing it now.
+ */
+function membership_entity_retention_expires(MembershipEntity $membership) {
+  $settings = membership_entity_get_bundle_settings($membership->type);
+  $period = isset($settings['retention_period']) ? $settings['retention_period'] : '';
+
+  if ($period === '') {
+    return NULL;
+  }
+  if ($period === 'forever') {
+    return FALSE;
+  }
+
+  // An active membership is not lapsed, so the clock has not started. It is
+  // still protected: there is no date on which it becomes removable.
+  $lapsed = membership_entity_lapsed_date($membership);
+  if (empty($lapsed)) {
+    return FALSE;
+  }
+
+  return strtotime('+' . $period, $lapsed);
+}
+
+/**
+ * Whether a membership is still inside its retention period.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to test.
+ *
+ * @return bool
+ *   TRUE if the record is to be kept for now.
+ */
+function membership_entity_is_retained(MembershipEntity $membership) {
+  $expires = membership_entity_retention_expires($membership);
+
+  if ($expires === NULL) {
+    return FALSE;
+  }
+  if ($expires === FALSE) {
+    return TRUE;
+  }
+
+  return $expires > REQUEST_TIME;
+}
+
+/**
+ * Explain, in one sentence, why a membership is being kept.
+ *
+ * @param MembershipEntity $membership
+ *   The membership being kept.
+ *
+ * @return string
+ *   Translated text naming the date, or saying there is not one.
+ */
+function membership_entity_retention_reason(MembershipEntity $membership) {
+  $expires = membership_entity_retention_expires($membership);
+
+  if ($expires === FALSE) {
+    if ((int) $membership->status === MEMBERSHIP_ENTITY_ACTIVE) {
+      return t('Membership %member_id is active. Only a lapsed membership can be removed.', array(
+        '%member_id' => $membership->member_id,
+      ));
+    }
+    return t('Membership %member_id is kept indefinitely by the retention policy for this membership type.', array(
+      '%member_id' => $membership->member_id,
+    ));
+  }
+
+  return t('Membership %member_id is kept until @date by the retention policy for this membership type.', array(
+    '%member_id' => $membership->member_id,
+    '@date' => format_date($expires, 'custom', 'j F Y'),
+  ));
+}
+
+/**
+ * Return the membership ids of a membership's children.
+ *
+ * @param int $mid
+ *   The membership id of the parent.
+ *
+ * @return array
+ *   An array of child membership ids, empty if there are none.
+ */
+function membership_entity_child_mids($mid) {
+  if (empty($mid)) {
+    return array();
+  }
+
+  return db_query('SELECT mid FROM {membership_entity} WHERE pid = :pid', array(
+    ':pid' => $mid,
+  ))->fetchCol();
+}
+
+/**
+ * Count a membership's children.
+ *
+ * Used to enforce the membership type's max_children limit and to block the
+ * deletion of a membership that still has members beneath it.
+ *
+ * @param int $mid
+ *   The membership id of the parent.
+ *
+ * @return int
+ *   The number of child memberships.
+ */
+function membership_entity_child_count($mid) {
+  if (empty($mid)) {
+    return 0;
+  }
+
+  return (int) db_query('SELECT COUNT(mid) FROM {membership_entity} WHERE pid = :pid', array(
+    ':pid' => $mid,
+  ))->fetchField();
+}
+
+/**
+ * Whether a membership can still take another sub-member, and by whom.
+ *
+ * Access callback for the "Add sub-member" action on a membership page. The
+ * three structural tests are the same ones the parent selector applies: two
+ * levels only, a type that allows sub-members, and room left under its
+ * max_children.
+ *
+ * @param MembershipEntity $membership
+ *   The prospective parent membership.
+ *
+ * @return bool
+ *   TRUE if the current user may add a sub-member to this membership.
+ */
+function membership_entity_add_sub_member_access(MembershipEntity $membership) {
+  // A membership that already belongs to another cannot take sub-members of
+  // its own — memberships are limited to two levels.
+  if (empty($membership->mid) || !empty($membership->pid)) {
+    return FALSE;
+  }
+
+  $settings = membership_entity_get_bundle_settings($membership->type);
+  if (empty($settings['max_children'])) {
+    return FALSE;
+  }
+
+  if ($settings['max_children'] != FIELD_CARDINALITY_UNLIMITED
+    && membership_entity_child_count($membership->mid) >= $settings['max_children']) {
+    return FALSE;
+  }
+
+  return user_access('administer memberships')
+    || membership_entity_manages_sub_membership('create', $membership->mid);
+}
+
+/**
+ * Property getter for a membership's parent.
+ *
+ * A membership with no parent stores pid 0, not NULL. Handing that to a
+ * metadata wrapper typed as an entity reference leaves it holding an id that
+ * cannot be loaded, and tokens then render the wrapper itself rather than
+ * clearing. Returning NULL instead makes an absent parent read as an empty
+ * property everywhere.
+ *
+ * @param MembershipEntity $membership
+ *   The membership being read.
+ *
+ * @return int|null
+ *   The parent's membership id, or NULL if it has no parent.
+ *
+ * @see MembershipEntityMetadataController::entityPropertyInfo()
+ */
+function membership_entity_metadata_get_parent($membership) {
+  return empty($membership->pid) ? NULL : (int) $membership->pid;
+}
+
+/**
+ * A human readable label for a membership acting as a parent.
+ *
+ * Matches the labels used by the parent selector: the primary member's name is
+ * what is being recognised, with the member id kept for the case of two
+ * members sharing a name. A membership labels itself by member id alone, which
+ * identifies nothing to the person reading it.
+ *
+ * @param int $mid
+ *   The membership id.
+ *
+ * @return string
+ *   A plain, unsanitized label, or an empty string if the membership is gone.
+ *   Callers must escape it. Deliberately not built with t()'s @ placeholders,
+ *   which would sanitize here and leave every caller double escaping.
+ */
+function membership_entity_parent_label($mid) {
+  if (empty($mid)) {
+    return '';
+  }
+
+  $query = db_select('membership_entity', 'me')
+    ->fields('me', array('member_id'))
+    ->condition('me.mid', $mid);
+  $query->leftJoin('users', 'u', 'u.uid = me.uid');
+  $query->addField('u', 'name', 'username');
+  $row = $query->execute()->fetchObject();
+
+  if (empty($row)) {
+    return '';
+  }
+
+  return !empty($row->username)
+    ? format_string('!name (!id)', array('!name' => $row->username, '!id' => $row->member_id))
+    : $row->member_id;
+}
+
+/**
+ * The domain used for generated postal member addresses.
+ *
+ * Defaults to the site's own host with .invalid appended. RFC 2606 reserves
+ * .invalid so the address can never resolve: nothing is delivered to it and
+ * nothing bounces back from it, which is the whole point — these accounts
+ * exist so that a member with no e-mail address can still hold a membership.
+ *
+ * @return string
+ *   A domain name, without a leading @.
+ */
+function membership_entity_postal_mail_domain() {
+  $domain = config_get('membership_entity.settings', 'postal_mail_domain');
+  if (!empty($domain)) {
+    return $domain;
+  }
+
+  global $base_url;
+  $host = parse_url($base_url, PHP_URL_HOST);
+  $host = preg_replace('/^www\./', '', (string) $host);
+
+  return (!empty($host) ? $host : 'membership') . '.invalid';
+}
+
+/**
+ * Generate an undeliverable e-mail address for a member who has none.
+ *
+ * Derived from the username, which Backdrop already holds to be unique, so a
+ * single save is enough — an address built from the uid would need the account
+ * to be written first. A counter is appended in the unlikely event of a
+ * collision after the username has been reduced to address-safe characters.
+ *
+ * @param string $username
+ *   The account name to derive the address from.
+ *
+ * @return string
+ *   An e-mail address at the postal domain.
+ */
+function membership_entity_generate_postal_mail($username) {
+  $local = preg_replace('/[^a-zA-Z0-9._-]/', '.', $username);
+  $local = trim(preg_replace('/\.{2,}/', '.', $local), '.');
+  if ($local === '') {
+    $local = 'member';
+  }
+
+  $domain = membership_entity_postal_mail_domain();
+  $mail = 'noreply+' . backdrop_strtolower($local) . '@' . $domain;
+
+  $suffix = 0;
+  while (db_query('SELECT uid FROM {users} WHERE mail = :mail', array(':mail' => $mail))->fetchField()) {
+    $suffix++;
+    $mail = 'noreply+' . backdrop_strtolower($local) . '.' . $suffix . '@' . $domain;
+  }
+
+  return $mail;
+}
+
+/**
+ * Whether an account's address is a generated postal one.
+ *
+ * Recognised by the domain rather than a flag on the account, so no column is
+ * added to {users} and the state is visible to anyone reading the address.
+ *
+ * @param object|string $account
+ *   A user account object, or an e-mail address.
+ *
+ * @return bool
+ *   TRUE if the address is a generated postal address.
+ */
+function membership_entity_is_postal_account($account) {
+  $mail = is_object($account) ? $account->mail : $account;
+  if (empty($mail)) {
+    return FALSE;
+  }
+
+  $mail = membership_entity_mail_address($mail);
+
+  $domain = '@' . membership_entity_postal_mail_domain();
+  return backdrop_strtolower(backdrop_substr($mail, -backdrop_strlen($domain))) === backdrop_strtolower($domain);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for user_register_form().
+ *
+ * Postal members are usually created by an administrator rather than by
+ * self-registration, so the option has to exist on the account creation form as
+ * well as on the join form.
+ */
+function membership_entity_form_user_register_form_alter(&$form, &$form_state) {
+  if (!config_get('membership_entity.settings', 'postal_members') || !user_access('administer users')) {
+    return;
+  }
+
+  $form['account']['postal'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Postal member — no e-mail address'),
+    '#description' => t('Generates an undeliverable address at %domain and a random password. The account cannot sign in or reset a password, which is intended: it exists so the member can hold a membership. Enter a real address later to turn it into an ordinary account.', array(
+      '%domain' => membership_entity_postal_mail_domain(),
+    )),
+    '#weight' => -1,
+  );
+
+  $form['account']['mail']['#states']['invisible'][':input[name="postal"]'] = array('checked' => TRUE);
+  if (isset($form['account']['pass'])) {
+    $form['account']['pass']['#states']['invisible'][':input[name="postal"]'] = array('checked' => TRUE);
+  }
+
+  // Hiding an element with #states is presentation only: the server still
+  // enforces #required, and rejects the empty address before any form level
+  // handler can generate one. Lift the flag instead, once the checkbox is known
+  // to be ticked. See membership_entity_postal_required_after_build().
+  $form['#membership_entity_postal_parents'] = array();
+  $form['#after_build'][] = 'membership_entity_postal_required_after_build';
+
+  array_unshift($form['#validate'], 'membership_entity_user_register_postal_validate');
+}
+
+/**
+ * Form #after_build callback: drop required on the fields a postal member
+ * cannot fill in.
+ *
+ * An element's #required is checked while validation recurses through the
+ * form's children, which happens before any form level #validate handler runs,
+ * so a handler cannot supply the missing values in time. Clearing the flag on
+ * a built form is the only point late enough to see the checkbox and early
+ * enough to precede validation.
+ *
+ * @param array $form
+ *   The built form.
+ * @param array $form_state
+ *   The current state of the form.
+ *
+ * @return array
+ *   The form with required lifted where the postal option is in use.
+ */
+function membership_entity_postal_required_after_build($form, &$form_state) {
+  $parents = $form['#membership_entity_postal_parents'];
+
+  // Locate the account elements and the submitted checkbox, which sit under
+  // 'user' on the join form and at the top level on the registration form.
+  $account = &$form;
+  $input = isset($form_state['input']) ? $form_state['input'] : array();
+  foreach ($parents as $parent) {
+    $account = &$account[$parent];
+    $input = isset($input[$parent]) ? $input[$parent] : array();
+  }
+
+  if (empty($input['postal'])) {
+    return $form;
+  }
+
+  foreach (array('mail', 'pass') as $key) {
+    if (isset($account['account'][$key])) {
+      $account['account'][$key]['#required'] = FALSE;
+    }
+  }
+
+  // Where an administrator creates the account, core makes the password
+  // conditionally required through an #element_validate rather than through
+  // #required, and element validators run during the same recursion. A postal
+  // member is given a random password they can never use, so the check has
+  // nothing left to protect.
+  if (isset($account['account']['pass']['#element_validate'])) {
+    $account['account']['pass']['#element_validate'] = array_values(array_diff(
+      $account['account']['pass']['#element_validate'],
+      array('user_pass_required_validate')
+    ));
+  }
+
+  return $form;
+}
+
+/**
+ * Validate handler: generate an address for a postal member.
+ *
+ * @see membership_entity_form_user_register_form_alter()
+ */
+function membership_entity_user_register_postal_validate($form, &$form_state) {
+  if (empty($form_state['values']['postal'])) {
+    return;
+  }
+
+  $name = $form_state['values']['name'];
+  if (empty($name)) {
+    // Core will complain about the missing name; nothing to derive from.
+    return;
+  }
+
+  form_set_value($form['account']['mail'], membership_entity_generate_postal_mail($name), $form_state);
+
+  // Undeliverable and unenterable together: without a random password the
+  // account would be reachable by anyone who guessed a blank one.
+  if (isset($form['account']['pass'])) {
+    form_set_value($form['account']['pass'], user_password(32), $form_state);
+  }
+}
+
+/**
+ * Implements hook_mail_alter().
+ *
+ * Postal members hold an address that cannot receive mail by design. Sending to
+ * it would produce a delivery failure for every renewal notice, so the message
+ * is abandoned before it leaves.
+ */
+function membership_entity_mail_alter(&$message) {
+  if (empty($message['to'])) {
+    return;
+  }
+
+  if (membership_entity_is_postal_account($message['to'])) {
+    $message['send'] = FALSE;
+    return;
+  }
+
+  if (membership_entity_is_no_contact_address($message['to'])) {
+    $message['send'] = FALSE;
+  }
+}
+
+/**
+ * Pull a bare address out of a mail header.
+ *
+ * A header may carry the display form, "Someone <someone@example.com>". Missing
+ * that would let every suppressed message through with no sign anything was
+ * wrong, which is the worst way for a suppression to fail.
+ *
+ * @param string $mail
+ *   An address, in either form.
+ *
+ * @return string
+ *   The bare address.
+ */
+function membership_entity_mail_address($mail) {
+  if (preg_match('/<([^>]+)>\s*$/', $mail, $matches)) {
+    return trim($matches[1]);
+  }
+
+  return trim($mail);
+}
+
+/**
+ * Whether an address belongs to somebody who must not be contacted.
+ *
+ * The flag lives on the membership, because that is the record an administrator
+ * is looking at when they learn of a death or a request to be left alone. It
+ * suppresses mail to the account the membership belongs to, whichever of their
+ * memberships was flagged — somebody who must not be written to must not be
+ * written to about anything.
+ *
+ * @param string $mail
+ *   An address, bare or in header form.
+ *
+ * @return bool
+ *   TRUE if nothing should be sent there.
+ */
+function membership_entity_is_no_contact_address($mail) {
+  if (empty($mail)) {
+    return FALSE;
+  }
+
+  $addresses = &backdrop_static(__FUNCTION__, array());
+  $address = backdrop_strtolower(membership_entity_mail_address($mail));
+
+  if (!isset($addresses[$address])) {
+    $addresses[$address] = (bool) db_query_range('SELECT 1 FROM {membership_entity} m INNER JOIN {users} u ON u.uid = m.uid WHERE m.no_contact = 1 AND LOWER(u.mail) = :mail', 0, 1, array(
+      ':mail' => $address,
+    ))->fetchField();
+  }
+
+  return $addresses[$address];
+}
+
+/**
+ * Whether a membership's term is paid for by its parent.
+ *
+ * Where a parent covers everyone beneath it — a household, or an association
+ * that pays as a body — its sub-members do not buy their own cover and are
+ * given a term matching the parent's instead. Sub-members of a parent set to
+ * 'own' renew separately and are merely gated by it.
+ *
+ * True for both 'inherit' and 'roster', because the question this answers is
+ * who pays, not how the renewal reaches the sub-member. The two settings differ
+ * only at renewal time: 'inherit' carries everybody forward automatically,
+ * 'roster' waits to be told who is on this year's list. Neither sub-member
+ * renews itself, so neither is offered a renew tab.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to test.
+ *
+ * @return bool
+ *   TRUE if the membership's parent covers its term.
+ */
+function membership_entity_child_inherits_terms(MembershipEntity $membership) {
+  if (empty($membership->pid)) {
+    return FALSE;
+  }
+
+  $settings = membership_entity_parent_settings($membership->pid);
+  return $settings && in_array($settings['child_terms'], array('inherit', 'roster'));
+}
+
+/**
+ * Whether a parent renews its sub-members from a supplied list.
+ *
+ * An association large enough to collect its own subscriptions sends across who
+ * has actually paid, and that list never matches the membership in full: people
+ * drop out every year without ever saying so. Renewing everybody beneath the
+ * parent automatically would extend cover to those people too, and nobody would
+ * ever notice, because the money has already been taken and the renewal
+ * reported success.
+ *
+ * @param MembershipEntity $membership
+ *   The parent membership to test.
+ *
+ * @return bool
+ *   TRUE if sub-members are renewed one at a time rather than as a body.
+ */
+function membership_entity_renews_from_roster(MembershipEntity $membership) {
+  $settings = membership_entity_get_bundle_settings($membership->type);
+  return $settings['child_terms'] == 'roster';
+}
+
+/**
+ * The bundle settings of the membership a sub-member belongs to.
+ *
+ * Loads the parent's type alone rather than the whole membership: this is
+ * called from access checks that run on every sub-member row of a listing, and
+ * the settings are the only part wanted.
+ *
+ * @param int $pid
+ *   The parent membership id.
+ *
+ * @return array|false
+ *   The parent type's bundle settings, or FALSE if the parent has gone.
+ */
+function membership_entity_parent_settings($pid) {
+  $parent_type = db_query('SELECT type FROM {membership_entity} WHERE mid = :mid', array(
+    ':mid' => $pid,
+  ))->fetchField();
+  if ($parent_type === FALSE) {
+    return FALSE;
+  }
+
+  return membership_entity_get_bundle_settings($parent_type);
+}
+
+/**
+ * List the memberships a user may attach sub-members to.
+ *
+ * A household head or association secretary can only ever attach to their own
+ * membership, so this is normally one entry. Returned in the same shape as
+ * membership_entity_eligible_parents() so the two can be used interchangeably.
+ *
+ * @param string $op
+ *   'create' when adding a new sub-member, 'edit' when changing an existing
+ *   one.
+ * @param object $account
+ *   The account to check. Defaults to the logged in user.
+ *
+ * @return array
+ *   Membership labels keyed by mid.
+ */
+function membership_entity_managed_parents($op, $account = NULL) {
+  $user = isset($account) ? $account : $GLOBALS['user'];
+  $options = array();
+  if (empty($user->uid)) {
+    return $options;
+  }
+
+  $query = db_select('membership_entity', 'me')
+    ->fields('me', array('mid', 'member_id', 'type'))
+    ->condition('me.uid', $user->uid)
+    ->condition('me.pid', 0);
+  $query->leftJoin('users', 'u', 'u.uid = me.uid');
+  $query->addField('u', 'name', 'username');
+
+  foreach ($query->execute() as $row) {
+    $settings = membership_entity_get_bundle_settings($row->type);
+    if (empty($settings['max_children'])) {
+      continue;
+    }
+    if (!user_access($row->type . ' ' . $op . ' sub-memberships', $user)) {
+      continue;
+    }
+
+    // A parent that is already full takes no more.
+    if ($op == 'create' && $settings['max_children'] != FIELD_CARDINALITY_UNLIMITED
+      && membership_entity_child_count($row->mid) >= $settings['max_children']) {
+      continue;
+    }
+
+    $options[$row->mid] = !empty($row->username)
+      ? t('@name (@id)', array('@name' => $row->username, '@id' => $row->member_id))
+      : $row->member_id;
+  }
+
+  return $options;
+}
+
+/**
+ * List the memberships that may act as a parent for a given membership.
+ *
+ * A membership qualifies when its type allows sub-members, it is not the
+ * membership being edited, it does not itself have a parent (memberships are
+ * limited to two levels), and it has not already reached its type's
+ * max_children — unless it is the current parent, which must stay selectable so
+ * that editing an unrelated field does not silently move the member.
+ *
+ * @param MembershipEntity $membership
+ *   The membership being edited.
+ *
+ * @return array
+ *   Membership labels keyed by mid, suitable for a select element.
+ */
+function membership_entity_eligible_parents(MembershipEntity $membership) {
+  $options = array();
+
+  // Only types that allow sub-members are worth querying for.
+  $types = array();
+  foreach (membership_entity_get_bundles() as $bundle => $label) {
+    $settings = membership_entity_get_bundle_settings($bundle);
+    if (!empty($settings['max_children'])) {
+      $types[$bundle] = $settings['max_children'];
+    }
+  }
+  if (empty($types)) {
+    return $options;
+  }
+
+  // Join the primary member so the list can be read by a human. A membership
+  // labels itself by member_id, which identifies nothing to the person choosing
+  // — "00001" could be any household on the site.
+  $query = db_select('membership_entity', 'me')
+    ->fields('me', array('mid', 'member_id', 'type'))
+    ->condition('me.type', array_keys($types), 'IN')
+    ->condition('me.pid', 0);
+  $query->leftJoin('users', 'u', 'u.uid = me.uid');
+  $query->addField('u', 'name', 'username');
+  $query->orderBy('u.name');
+  $query->orderBy('me.member_id');
+  if (!empty($membership->mid)) {
+    $query->condition('me.mid', $membership->mid, '<>');
+  }
+
+  foreach ($query->execute() as $row) {
+    $max = $types[$row->type];
+    $full = ($max != FIELD_CARDINALITY_UNLIMITED)
+      && (membership_entity_child_count($row->mid) >= $max);
+
+    // A full parent is still offered if the member is already in it.
+    if ($full && $row->mid != $membership->pid) {
+      continue;
+    }
+
+    // Name first, since that is what is being recognised; the member id stays
+    // for the case of two members with the same name.
+    $options[$row->mid] = !empty($row->username)
+      ? t('@name (@id)', array('@name' => $row->username, '@id' => $row->member_id))
+      : $row->member_id;
+  }
+
+  return $options;
+}
+
+/**
+ * Private: Reapply roles to every child of a membership.
+ *
+ * Called when a parent's status has changed. The children's own stored statuses
+ * are untouched — only the roles derived from them move — so this deliberately
+ * does not save the child memberships. That also keeps the controller from
+ * re-entering itself.
+ *
+ * @param MembershipEntity $parent
+ *   The parent membership whose status has just changed.
+ */
+function _membership_entity_propagate_to_children(MembershipEntity $parent) {
+  $child_mids = membership_entity_child_mids($parent->mid);
+  if (empty($child_mids)) {
+    return;
+  }
+
+  $roles = array();
+  foreach (membership_entity_load_multiple($child_mids) as $child) {
+    $data = membership_entity_get_bundle_settings($child->type);
+    $op = (membership_entity_effective_status($child) == MEMBERSHIP_ENTITY_ACTIVE) ? 'add' : 'remove';
+
+    $roles[$child->uid] = array(
+      'rid' => $data['primary_role'],
+      'op' => $op,
+    );
+    foreach ($child->secondary_members as $uid) {
+      $roles[$uid] = array(
+        'rid' => $data['secondary_role'],
+        'op' => $op,
+      );
+    }
+  }
+
+  _membership_entity_update_roles($roles);
 }
 
 /**

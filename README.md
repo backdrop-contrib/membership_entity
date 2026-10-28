@@ -11,10 +11,9 @@ CONTENTS OF THIS FILE
 
 INTRODUCTION
 ------------
-Backdrop 1.x Maintainer: jayelless (James Scott).
-
-This module has been converted from Drupal 7.x to Backdrop 1.x
-by jayelless (James Scott) in July 2021.
+This module was converted from Drupal 7.x to Backdrop 1.x by jayelless
+(James Scott) in July 2021, and has been maintained by albanycomputers
+(Steve Moorhouse) since July 2026.
 
 The Membership Entity module provides a separation between memberships and
 individual user accounts. This provides several advantages for managing
@@ -80,7 +79,8 @@ Current Maintainers
 -------------------
 
 - [Steve Moorhouse (albanycomputers)](https://github.com/albanycomputers)
-- [Jayelless](https://github.com/jayelless).
+
+Seeking co-maintainers.
 
 Credits
 -------

@@ -63,11 +63,32 @@ function membership_entity_schema() {
         'not null' => TRUE,
         'default' => 0,
       ),
+      'pid' => array(
+        'description' => 'The mid of the parent membership, or 0 for a top level membership.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
       'status' => array(
         'description' => 'Integer code indicating the membership status.',
         'type' => 'int',
         'not null' => TRUE,
         'default' => 1,
+      ),
+      'no_contact' => array(
+        'description' => 'Whether the member should never be contacted, for instance because they have died.',
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'member_name' => array(
+        'description' => 'The primary member\'s name, kept only where the user account has been deleted and the membership retained.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'default' => NULL,
       ),
       'created' => array(
         'description' => 'The Unix timestamp when the membership was created.',
@@ -84,6 +105,7 @@ function membership_entity_schema() {
     ),
     'indexes' => array(
       'membership_entity_uid' => array('uid'),
+      'membership_entity_pid' => array('pid'),
       'membership_entity_changed' => array('changed'),
       'membership_entity_created' => array('created'),
       'membership_entity_status_type' => array('status', 'type', 'mid'),
@@ -139,6 +161,55 @@ function membership_entity_schema() {
   );
 
   return $schema;
+}
+
+/**
+ * Add the parent membership column to support hierarchical memberships.
+ */
+function membership_entity_update_1000() {
+  if (!db_field_exists('membership_entity', 'pid')) {
+    db_add_field('membership_entity', 'pid', array(
+      'description' => 'The mid of the parent membership, or 0 for a top level membership.',
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+      'default' => 0,
+    ), array(
+      'indexes' => array(
+        'membership_entity_pid' => array('pid'),
+      ),
+    ));
+  }
+}
+
+/**
+ * Remember who a membership belonged to, for records that outlive the account.
+ */
+function membership_entity_update_1001() {
+  if (!db_field_exists('membership_entity', 'member_name')) {
+    db_add_field('membership_entity', 'member_name', array(
+      'description' => 'The primary member\'s name, kept only where the user account has been deleted and the membership retained.',
+      'type' => 'varchar',
+      'length' => 255,
+      'not null' => FALSE,
+      'default' => NULL,
+    ));
+  }
+}
+
+/**
+ * Add the do not contact flag.
+ */
+function membership_entity_update_1002() {
+  if (!db_field_exists('membership_entity', 'no_contact')) {
+    db_add_field('membership_entity', 'no_contact', array(
+      'description' => 'Whether the member should never be contacted, for instance because they have died.',
+      'type' => 'int',
+      'size' => 'tiny',
+      'not null' => TRUE,
+      'default' => 0,
+    ));
+  }
 }
 
 /**

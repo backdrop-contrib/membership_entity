@@ -1,0 +1,127 @@
+<?php
+
+/**
+ * @file
+ * Install, uninstall, and requirements hooks for membership_entity_ubercart.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function membership_entity_ubercart_schema() {
+  $schema['membership_entity_ubercart_products'] = array(
+    'description' => 'The membership each product feature sells.',
+    'fields' => array(
+      'pfid' => array(
+        'description' => 'The product feature id.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'nid' => array(
+        'description' => 'The product node id.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'model' => array(
+        'description' => 'The SKU the feature applies to, or empty for any SKU of the product.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'type' => array(
+        'description' => 'The membership type joined or renewed.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'term' => array(
+        'description' => 'The term length added, as the membership type lists it.',
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('pfid'),
+    'indexes' => array(
+      'nid' => array('nid'),
+    ),
+  );
+
+  $schema['membership_entity_ubercart_orders'] = array(
+    'description' => 'Order products already turned into membership terms, so a status changed twice never adds a second term.',
+    'fields' => array(
+      'order_product_id' => array(
+        'description' => 'The order product id.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'order_id' => array(
+        'description' => 'The order id.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'mid' => array(
+        'description' => 'The membership joined or renewed.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'created' => array(
+        'description' => 'When the order product was processed.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('order_product_id'),
+    'indexes' => array(
+      'order_id' => array('order_id'),
+      'mid' => array('mid'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function membership_entity_ubercart_uninstall() {
+  // The features themselves live in Ubercart's table, which would otherwise
+  // list a feature no module answers for.
+  db_delete('uc_product_features')
+    ->condition('fid', 'membership')
+    ->execute();
+}
+
+/**
+ * Implements hook_requirements().
+ */
+function membership_entity_ubercart_requirements($phase) {
+  $requirements = array();
+  if ($phase != 'runtime') {
+    return $requirements;
+  }
+
+  $t = get_t();
+  if ($nids = membership_entity_ubercart_role_conflicts()) {
+    $requirements['membership_entity_ubercart_roles'] = array(
+      'title' => $t('Membership products'),
+      'value' => $t('Also assign roles with Ubercart Roles'),
+      'description' => membership_entity_ubercart_role_conflict_message($nids),
+      'severity' => REQUIREMENT_WARNING,
+    );
+  }
+
+  return $requirements;
+}

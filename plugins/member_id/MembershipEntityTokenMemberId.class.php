@@ -88,7 +88,7 @@ class MembershipEntityTokenMemberId extends MembershipEntityMemberIdAbstract {
 
     $form['pattern'] = array(
       '#type' => 'textfield',
-      '#title' => t('Member ID Pattern.'),
+      '#title' => t('Site id number pattern'),
       '#description' => t('The pattern to use to create the member id. You may enter data from the "Replacement patterns" below.'),
       '#required' => TRUE,
       '#default_value' => $settings['pattern'],

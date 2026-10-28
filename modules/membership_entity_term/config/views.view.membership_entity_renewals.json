@@ -1,0 +1,220 @@
+{
+    "_config_name": "views.view.membership_entity_renewals",
+    "module": "membership_entity_term",
+    "name": "membership_entity_renewals",
+    "description": "The sub-members of one membership, for marking off against a renewal list.",
+    "tag": "membership_entity",
+    "disabled": false,
+    "base_table": "membership_entity",
+    "human_name": "Membership: Renewals",
+    "core": 0,
+    "display": {
+        "default": {
+            "display_title": "Master",
+            "display_plugin": "default",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "title": "Renewals",
+                "use_more_always": false,
+                "access": {
+                    "type": "none"
+                },
+                "cache": {
+                    "type": "none"
+                },
+                "exposed_form": {
+                    "type": "basic"
+                },
+                "pager": {
+                    "type": "full",
+                    "options": {
+                        "items_per_page": "50"
+                    }
+                },
+                "style_plugin": "table",
+                "style_options": {
+                    "columns": {
+                        "views_bulk_operations": "views_bulk_operations",
+                        "member_id": "member_id",
+                        "primary_member": "primary_member",
+                        "renewal_state": "renewal_state",
+                        "effective_status": "effective_status",
+                        "url": "url"
+                    },
+                    "empty_table": true,
+                    "info": {
+                        "views_bulk_operations": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "member_id": {
+                            "sortable": 1,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "primary_member": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "renewal_state": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "effective_status": {
+                            "sortable": 1,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "url": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        }
+                    },
+                    "default": "member_id"
+                },
+                "header": {
+                    "area": {
+                        "id": "area",
+                        "table": "views",
+                        "field": "area",
+                        "content": "<p>Tick everyone on the renewal list sent across, then choose <em>Mark as renewed<\/em>. Anyone left unticked is not touched: their own cover runs out on its own date and they lapse in the ordinary way, which is what should happen to a member who has not renewed. Detaching is for somebody who has left altogether.<\/p>",
+                        "format": "filtered_html"
+                    }
+                },
+                "empty": {
+                    "area": {
+                        "id": "area",
+                        "table": "views",
+                        "field": "area",
+                        "empty": true,
+                        "content": "This membership has no sub-members.",
+                        "format": "filtered_html"
+                    }
+                },
+                "fields": {
+                    "views_bulk_operations": {
+                        "id": "views_bulk_operations",
+                        "table": "views_entity_membership_entity",
+                        "field": "views_bulk_operations",
+                        "label": "",
+                        "element_label_colon": false,
+                        "vbo_settings": {
+                            "display_type": "0",
+                            "enable_select_all_pages": 1,
+                            "row_clickable": 1,
+                            "force_single": 0,
+                            "entity_load_capacity": "10"
+                        },
+                        "vbo_operations": {
+                            "action::membership_entity_term_renew_sub_member_action": {
+                                "selected": 1,
+                                "skip_confirmation": 0,
+                                "override_label": 0,
+                                "label": ""
+                            }
+                        }
+                    },
+                    "mid": {
+                        "id": "mid",
+                        "table": "membership_entity",
+                        "field": "mid",
+                        "label": "",
+                        "exclude": true,
+                        "element_label_colon": false,
+                        "separator": ""
+                    },
+                    "member_id": {
+                        "id": "member_id",
+                        "table": "membership_entity",
+                        "field": "member_id",
+                        "alter": {
+                            "make_link": true,
+                            "path": "membership/[mid]",
+                            "alt": "View membership [member_id]"
+                        }
+                    },
+                    "primary_member": {
+                        "id": "primary_member",
+                        "table": "membership_entity",
+                        "field": "primary_member",
+                        "label": "Member",
+                        "link_to_entity": 1,
+                        "view_mode": "full",
+                        "bypass_access": 1
+                    },
+                    "renewal_state": {
+                        "id": "renewal_state",
+                        "table": "membership_entity",
+                        "field": "renewal_state",
+                        "label": "Renewal"
+                    },
+                    "effective_status": {
+                        "id": "effective_status",
+                        "table": "membership_entity",
+                        "field": "effective_status",
+                        "label": "Status"
+                    },
+                    "url": {
+                        "id": "url",
+                        "table": "membership_entity",
+                        "field": "url",
+                        "label": "Operations"
+                    }
+                },
+                "sorts": {
+                    "member_id": {
+                        "id": "member_id",
+                        "table": "membership_entity",
+                        "field": "member_id"
+                    }
+                },
+                "arguments": {
+                    "pid": {
+                        "id": "pid",
+                        "table": "membership_entity",
+                        "field": "pid",
+                        "default_action": "not found",
+                        "validate": {
+                            "type": "numeric",
+                            "fail": "not found"
+                        },
+                        "break_phrase": 0
+                    }
+                },
+                "filters": []
+            }
+        },
+        "page": {
+            "display_title": "Page",
+            "display_plugin": "page",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "display_description": "The renewals tab on a membership that pays for its sub-members from a supplied list.",
+                "path": "membership/%/renewals",
+                "menu": {
+                    "type": "tab",
+                    "title": "Renewals",
+                    "description": "Mark off the sub-members on this renewal list.",
+                    "weight": "2",
+                    "name": "navigation",
+                    "context": 0,
+                    "context_only_inline": 0
+                }
+            }
+        }
+    }
+}

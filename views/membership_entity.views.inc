@@ -24,11 +24,83 @@ class MembershipEntityViewsController extends EntityDefaultViewsController {
       'handler' => 'views_handler_field_membership_primary_member',
     ];
 
+    // Both of these are base columns added for members without an account of
+    // their own. Without a title here the default views data names them from
+    // the column, so a site builder picks between "Member_name" and
+    // "No_contact" with no idea what either holds.
+    $data['member_name']['title'] = t('Member name');
+    $data['member_name']['help'] = t('The name recorded directly on the membership, used where the member has no user account to take it from. Empty for a member who has one — use the Primary member relationship and the account fields for those.');
+
+    $data['no_contact']['title'] = t('Do not contact');
+    $data['no_contact']['help'] = t('Set when nothing should be sent to this member, renewal reminders included. The membership record itself is kept.');
+
     $data['secondary_members'] = [
       'title' => t('Secondary members'),
       'help' => t('Secondary members that belong to the membership.'),
       'field' => [
         'handler' => 'views_handler_field_membership_secondary_member',
+      ],
+    ];
+
+    $data['pid'] = [
+      'title' => t('Parent membership'),
+      'help' => t('The household or association this membership belongs to. 0 for a top level membership.'),
+      'field' => [
+        'handler' => 'views_handler_field_numeric',
+        'click sortable' => TRUE,
+      ],
+      'filter' => [
+        'handler' => 'views_handler_filter_numeric',
+      ],
+      'sort' => [
+        'handler' => 'views_handler_sort',
+      ],
+      'argument' => [
+        'handler' => 'views_handler_argument_numeric',
+      ],
+      'relationship' => [
+        'title' => t('Parent membership'),
+        'label' => t('Parent membership'),
+        'help' => t('Bring in the household or association this membership belongs to.'),
+        'handler' => 'views_handler_relationship',
+        'base' => 'membership_entity',
+        'base field' => 'mid',
+        'relationship field' => 'pid',
+      ],
+    ];
+
+    // The reverse direction: from an association or household to the
+    // memberships beneath it. This is what a "members of this association"
+    // listing is built on.
+    $data['children'] = [
+      'title' => t('Sub-memberships'),
+      'help' => t('Bring in the memberships that belong to this one.'),
+      'real field' => 'mid',
+      'relationship' => [
+        'title' => t('Sub-memberships'),
+        'label' => t('Sub-membership'),
+        'handler' => 'views_handler_relationship',
+        'base' => 'membership_entity',
+        'base field' => 'pid',
+        'relationship field' => 'mid',
+      ],
+    ];
+
+    $data['child_count'] = [
+      'title' => t('Sub-member count'),
+      'help' => t('The number of memberships that belong to this one.'),
+      'real field' => 'mid',
+      'field' => [
+        'handler' => 'views_handler_field_membership_child_count',
+      ],
+    ];
+
+    $data['effective_status'] = [
+      'title' => t('Effective status'),
+      'help' => t('The status that actually governs access. A sub-member of a lapsed household or association is not active whatever its own status says.'),
+      'real field' => 'mid',
+      'field' => [
+        'handler' => 'views_handler_field_membership_effective_status',
       ],
     ];
 

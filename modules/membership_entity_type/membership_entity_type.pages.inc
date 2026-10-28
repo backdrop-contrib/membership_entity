@@ -144,12 +144,29 @@ function theme_membership_entity_type_add_list(array $variables) {
     $rows['description'][] = array('data' => check_plain($type->description));
 
     if ($membership_entity_term) {
-      $rows['terms'][] = array(
-        'data' => theme('item_list', array(
-          'items' => array_map('check_plain', $type->data['available_term_lengths']),
+      // Read through the settings helper rather than $type->data directly: a
+      // membership type whose term settings have never been saved has no
+      // available_term_lengths key at all, and the helper is what applies the
+      // module defaults.
+      $type_settings = membership_entity_get_bundle_settings($type->type);
+      $lengths = !empty($type_settings['available_term_lengths']) ? $type_settings['available_term_lengths'] : array();
+
+      if ($lengths) {
+        $data = theme('item_list', array(
+          'items' => array_map('check_plain', $lengths),
           'type' => 'ul',
-        )),
-      );
+        ));
+      }
+      else {
+        // Without a term length there is nothing for the join form to offer, so
+        // say so here rather than letting the member reach an unusable form.
+        $data = '<em>' . t('No term lengths configured.') . '</em>';
+        if (user_access('administer membership types')) {
+          $data .= '<br />' . l(t('Configure @label', array('@label' => $type->label)), 'admin/memberships/types/manage/' . $type->type);
+        }
+      }
+
+      $rows['terms'][] = array('data' => $data);
     }
 
     $rows['join'][] = array(

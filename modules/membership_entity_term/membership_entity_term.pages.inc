@@ -28,6 +28,85 @@ function _membership_entity_term_settings_form(&$form, &$form_state, $data) {
     'other' => t('Other'),
   );
 
+  // A club whose year runs to a fixed date charges the same whenever somebody
+  // joins, and renews everybody together. Offered as the last day of cover
+  // rather than as the instant cover stops, because 31 March is the date a
+  // member recognises and 1 April is the one that gets entered by mistake.
+  $fixed = explode('-', $data['fixed_renewal_date']);
+  $fixed_day = isset($fixed[0]) ? (int) $fixed[0] : 0;
+  $fixed_month = isset($fixed[1]) ? (int) $fixed[1] : 0;
+
+  $form['membership_settings']['fixed_renewal'] = array(
+    '#type' => 'container',
+    '#tree' => FALSE,
+  );
+
+  $form['membership_settings']['fixed_renewal']['fixed_renewal_enabled'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('All memberships of this type renew on the same date each year'),
+    '#default_value' => !empty($data['fixed_renewal_date']),
+    '#description' => t('Leave this off for terms that simply run for their length from the day they start. Turn it on for a membership year: every term then ends on the date below, whenever it began, so somebody joining part way through is covered until the next renewal rather than for a full term.'),
+  );
+
+  $form['membership_settings']['fixed_renewal']['fixed_renewal_day'] = array(
+    '#type' => 'select',
+    '#title' => t('Last day of cover'),
+    '#options' => backdrop_map_assoc(range(1, 31)),
+    '#default_value' => $fixed_day ? $fixed_day : 31,
+    '#states' => array(
+      'visible' => array(
+        ':input[name="fixed_renewal_enabled"]' => array('checked' => TRUE),
+      ),
+    ),
+  );
+
+  $form['membership_settings']['fixed_renewal']['fixed_renewal_month'] = array(
+    '#type' => 'select',
+    '#title' => t('Month'),
+    '#options' => array(
+      1 => t('January'), 2 => t('February'), 3 => t('March'),
+      4 => t('April'), 5 => t('May'), 6 => t('June'),
+      7 => t('July'), 8 => t('August'), 9 => t('September'),
+      10 => t('October'), 11 => t('November'), 12 => t('December'),
+    ),
+    '#default_value' => $fixed_month ? $fixed_month : 3,
+    '#description' => t('The last day members are covered. Cover stops at midnight afterwards, so a year ending 31 March is stored as 1 April — which is also the day the next term begins.'),
+    '#states' => array(
+      'visible' => array(
+        ':input[name="fixed_renewal_enabled"]' => array('checked' => TRUE),
+      ),
+    ),
+  );
+
+  $form['#validate'][] = '_membership_entity_term_settings_fixed_renewal_validate';
+
+  // Which view draws the term ledger on a membership page. Offered as a setting
+  // because the shipped one is a starting point, not a decision: an
+  // organisation that wants its ledger to read as a history rather than a table
+  // should be able to build that view and point this at it.
+  $ledger_options = array();
+  foreach (views_get_all_views() as $view_name => $view) {
+    if ($view->base_table != 'membership_entity_term' || !empty($view->disabled)) {
+      continue;
+    }
+    foreach ($view->display as $display_id => $display) {
+      $ledger_options[$view_name . ':' . $display_id] = t('@view — @display', array(
+        '@view' => $view->human_name ? $view->human_name : $view_name,
+        '@display' => $display->display_title,
+      ));
+    }
+  }
+
+  if (!empty($ledger_options)) {
+    $form['membership_settings']['term_list_view'] = array(
+      '#type' => 'select',
+      '#title' => t('Term list'),
+      '#options' => $ledger_options,
+      '#default_value' => !empty($data['term_list_view']) ? $data['term_list_view'] : 'membership_entity_terms:term_list',
+      '#description' => t('The view used to list this membership type\'s terms on its page. Where it appears, and whether it appears at all, is set under Manage Display.'),
+    );
+  }
+
   $form['membership_settings']['grace_period'] = array(
     '#type' => 'select',
     '#title' => t('Grace period'),
@@ -285,6 +364,41 @@ function membership_entity_term_length_element_validate($element, &$form_state, 
 }
 
 /**
+ * Validate handler: fold the fixed renewal date into its stored form.
+ *
+ * The form asks three questions — on or off, a day and a month — and the
+ * setting is one string, "DD-MM", empty when the feature is off. Also rejects a
+ * date that does not exist, since the day and month selects cannot know about
+ * each other.
+ *
+ * @see _membership_entity_term_settings_form()
+ */
+function _membership_entity_term_settings_fixed_renewal_validate($form, &$form_state) {
+  $values = &$form_state['values'];
+
+  if (empty($values['fixed_renewal_enabled'])) {
+    $values['fixed_renewal_date'] = '';
+    return;
+  }
+
+  $day = (int) $values['fixed_renewal_day'];
+  $month = (int) $values['fixed_renewal_month'];
+
+  // 31 February and 31 September do not exist, and checkdate is the cheapest
+  // way to say so. A leap year is used deliberately, so that 29 February is
+  // allowed to be chosen — it simply falls back to the 28th in other years.
+  if (!checkdate($month, $day, 2024)) {
+    form_set_error('fixed_renewal_day', t('%day %month is not a date. Choose a day that exists in that month.', array(
+      '%day' => $day,
+      '%month' => $form['membership_settings']['fixed_renewal']['fixed_renewal_month']['#options'][$month],
+    )));
+    return;
+  }
+
+  $values['fixed_renewal_date'] = $day . '-' . $month;
+}
+
+/**
  * Add term length options to the membership_entity_form.
  */
 function membership_entity_term_create_form(&$form, &$form_state) {
@@ -298,6 +412,22 @@ function membership_entity_term_create_form(&$form, &$form_state) {
     $form['#membership_entity_term'] = $term = membership_entity_term_create(array(
       'membership_entity_type' => $membership->type,
     ));
+
+    // Where the parent is already fixed — which is the whole of the "add
+    // sub-member" route — and that parent pays for its sub-members, every term
+    // control on this form is decoration: the submit handler discards whatever
+    // is entered and copies the parent's term down instead. Say what the term
+    // will be rather than asking for one that cannot be honoured.
+    //
+    // The generic add form is deliberately left alone. There the parent is
+    // chosen from a select of memberships whose types may differ in this
+    // setting, so whether the term is inherited is not known until the form
+    // comes back.
+    if (!empty($membership->pid) && membership_entity_child_inherits_terms($membership)) {
+      _membership_entity_term_inherited_notice($form, $membership);
+      $form['actions']['submit']['#submit'][] = 'membership_entity_term_create_form_submit';
+      return;
+    }
 
     // Add membership term fields.
     membership_entity_term_form($form, $form_state);
@@ -316,11 +446,75 @@ function membership_entity_term_create_form(&$form, &$form_state) {
 }
 
 /**
+ * State the term a sub-member will be given, in place of asking for one.
+ *
+ * Shown where the membership above pays for everyone beneath it. The date comes
+ * from the same lookup the submit handler uses, so what is promised here is
+ * what is written.
+ *
+ * @param array $form
+ *   The membership form, altered in place.
+ * @param MembershipEntity $membership
+ *   The sub-member being created, whose parent is already fixed.
+ */
+function _membership_entity_term_inherited_notice(&$form, MembershipEntity $membership) {
+  $parent_term = membership_entity_term_get_current($membership->pid);
+  $parent = membership_entity_parent_label($membership->pid);
+
+  if ($parent_term) {
+    $message = t('This membership is paid for by @parent, so it takes that membership’s term and will run to @date. It is renewed whenever @parent is.', array(
+      '@parent' => $parent,
+      '@date' => format_date(strtotime($parent_term->end), 'custom', 'j F Y'),
+    ));
+    $type = 'status';
+  }
+  else {
+    // Worth saying before the form is submitted rather than after: the person
+    // filling it in may want to renew the membership above first.
+    $message = t('This membership is paid for by @parent, but @parent has no current term, so this member will start with none. They will be covered from the next time @parent is renewed.', array(
+      '@parent' => $parent,
+    ));
+    $type = 'warning';
+  }
+
+  $form['membership_term_inherited'] = array(
+    '#type' => 'item',
+    '#title' => t('Term'),
+    '#markup' => '<div class="messages ' . $type . '">' . $message . '</div>',
+    '#weight' => 20,
+  );
+}
+
+/**
  * Submit handler for creating new terms.
  */
 function membership_entity_term_create_form_submit($form, &$form_state) {
   $membership = &$form_state['membership_entity'];
   $term = $form['#membership_entity_term'];
+
+  // Where the chosen parent pays for all of its sub-members, the term is not the
+  // one entered on this form: it is the parent's, copied down so that the two
+  // run to the same date. The parent is only known once the form has been
+  // submitted, which is why any term length entered above is discarded here
+  // rather than hidden earlier.
+  //
+  // The sub-member does get a term of their own, rather than none at all. It is
+  // what gives them a joining date, a renewal history, and a lapse that can be
+  // seen and explained — a membership with no terms sits at active for ever and
+  // leaves no record of any of it.
+  if (membership_entity_child_inherits_terms($membership)) {
+    if ($copied = membership_entity_term_copy_from_parent($membership, $membership->pid)) {
+      $membership->terms[$copied->id] = $copied;
+      $form_state['membership_entity_term'] = $copied;
+      backdrop_set_message(t('This membership is paid for by the membership it belongs to, and has been given a term running to the same date, @date.', array(
+        '@date' => format_date(strtotime($copied->end), 'custom', 'j F Y'),
+      )));
+    }
+    else {
+      backdrop_set_message(t('This membership is paid for by the membership it belongs to, but that membership has no current term, so no term could be given. It will be covered from the next time the membership above it is renewed.'), 'warning');
+    }
+    return;
+  }
 
   form_state_values_clean($form_state);
   _membership_entity_form_submit_build_entity('membership_entity_term', $term, $form['membership_term'], $form_state);
@@ -462,7 +656,25 @@ function membership_entity_term_form(&$form, &$form_state) {
     );
   }
 
-  $options = backdrop_map_assoc($bundle_settings['available_term_lengths']);
+  // A membership type whose term settings have never been saved offers no term
+  // lengths, which leaves a required radios element with no options — a form
+  // that cannot be submitted and gives no clue why. Say what is wrong, and to
+  // whom it is worth saying it.
+  $options = !empty($bundle_settings['available_term_lengths'])
+    ? backdrop_map_assoc($bundle_settings['available_term_lengths'])
+    : array();
+
+  if (empty($options)) {
+    if (user_access('administer membership types')) {
+      backdrop_set_message(t('No term lengths have been configured for this membership type, so it cannot be joined or renewed yet. <a href="!url">Add at least one term length</a>.', array(
+        '!url' => url('admin/memberships/types/manage/' . $membership->type),
+      )), 'error');
+    }
+    else {
+      backdrop_set_message(t('This membership type is not available at the moment. Please contact the site administrator.'), 'error');
+    }
+  }
+
   $form['membership_term']['term'] = array(
     '#type' => 'radios',
     '#title' => t('Term length'),

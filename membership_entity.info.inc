@@ -24,8 +24,8 @@ class MembershipEntityMetadataController extends EntityDefaultMetadataController
     ) + $properties['mid'];
 
     $properties['member_id'] = array(
-      'label' => t('Member id'),
-      'description' => t('The Member ID assigned to the membership.'),
+      'label' => t('Site id number'),
+      'description' => t('The administrative number this site assigns the membership, unique across all membership types. Not the organisation’s own membership number.'),
       'required' => TRUE,
     ) + $properties['member_id'];
 
@@ -45,6 +45,20 @@ class MembershipEntityMetadataController extends EntityDefaultMetadataController
       'setter permission' => 'administer memberships',
       'required' => TRUE,
       'schema field' => 'uid',
+    );
+
+    // Typed as a membership rather than left as a raw id so that it chains:
+    // [membership_entity:pid:member-id] lets the token member id generator
+    // derive a sub-member's id from its parent's — 00042-00001 rather than
+    // consuming a top level number of its own.
+    $properties['pid'] = array(
+      'label' => t('Parent membership'),
+      'type' => 'membership_entity',
+      'description' => t('The household or association membership this one belongs to.'),
+      'getter callback' => 'membership_entity_metadata_get_parent',
+      'setter callback' => 'entity_plus_property_verbatim_set',
+      'setter permission' => 'administer memberships',
+      'schema field' => 'pid',
     );
 
     $properties['status'] = array(

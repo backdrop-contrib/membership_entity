@@ -11,5 +11,4 @@ dependencies[] = entity_ui
 dependencies[] = user
 dependencies[] = views
 
-maintainers[albanycomputers] = 'Steve Moorhouse' 
-maintainers[jayelless] = 'James Scott'
+maintainers[albanycomputers] = 'Steve Moorhouse'

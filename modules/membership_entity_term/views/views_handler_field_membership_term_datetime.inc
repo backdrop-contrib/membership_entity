@@ -22,12 +22,28 @@ class views_handler_field_membership_term_datetime extends views_handler_field_d
   /**
    * {@inheritdoc}
    */
+  public function option_definition() { // @codingStandardsIgnoreLine, Views override compliant
+    $options = parent::option_definition();
+    $options['end_of_cover'] = array('default' => FALSE, 'bool' => TRUE);
+    return $options;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function options_form(&$form, &$form_state) { // @codingStandardsIgnoreLine, Views override compliant
     parent::options_form($form, $form_state);
 
     $form['timezone'] = array(
       '#type' => 'value',
       '#value' => 'UTC',
+    );
+
+    $form['end_of_cover'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Show the last moment of cover rather than the boundary'),
+      '#default_value' => $this->options['end_of_cover'],
+      '#description' => t('A term end date is stored as the instant cover stops, which is also the instant the next term starts — so a year from 1 April 2026 is stored as 1 April 2027, 12:00am. Displayed under a heading like "End date" that reads as though the member is covered on that day, when the last day they are actually covered is 31 March. Tick this to show 31 March 2027, 11:59pm instead. Display only: the stored value is unchanged, because renewals chain from it.'),
     );
   }
 
@@ -48,7 +64,17 @@ class views_handler_field_membership_term_datetime extends views_handler_field_d
       }
 
       $date = new BackdropDateTime($value, 'UTC');
-      return $date->format('U');
+      $timestamp = $date->format('U');
+
+      // Step back to the last second of cover. Done here rather than in the
+      // stored value because membership_entity_term_membership_entity_term_start_date_alter()
+      // starts a renewal term at the previous term's end: shifting the stored
+      // value would move every renewal back a second, compounding each time.
+      if (!empty($this->options['end_of_cover'])) {
+        $timestamp -= 1;
+      }
+
+      return $timestamp;
     }
     return $value;
   }
