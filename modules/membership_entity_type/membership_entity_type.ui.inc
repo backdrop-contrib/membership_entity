@@ -166,23 +166,3 @@ function membership_entity_type_form_submit($form, &$form_state) {
   }
   $form_state['redirect'] = 'admin/memberships/types/manage/' . $type->type;
 }
-
-/**
- * Form builder for the membership type delete form.
- */
-function membership_entity_type_confirm_delete($form, &$form_state, $type) {
-  $form['#membership_type'] = $type;
-  $message = t('Are you sure you want to delete the membership type %type?', array('%type' => $type->name));
-  $caption = '<p>' . t('This action cannot be undone.') . '</p>';
-  return confirm_form($form, $message, 'admin/memberships/types', $caption, t('Delete'));
-}
-
-/**
- * Submit handler for the membership type delete form.
- */
-function membership_entity_type_confirm_delete_submit($form, &$form_state) {
-  $type = $form_state['complete form']['#membership_type'];
-  membership_entity_type_delete($type);
-  backdrop_set_message(t('The membership type %name has been deleted.', array('%name' => $type->name)));
-  $form_state['redirect'] = 'admin/memberships/types';
-}
