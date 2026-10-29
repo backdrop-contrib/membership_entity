@@ -35,6 +35,7 @@ function membership_entity_term_autoload_info() {
     'views_handler_field_membership_term_modifier' => 'views/views_handler_field_membership_term_modifier.inc',
     'views_handler_filter_membership_term_datetime' => 'views/views_handler_filter_membership_term_datetime.inc',
     'views_handler_field_membership_renewal_state' => 'views/views_handler_field_membership_renewal_state.inc',
+    'views_handler_field_membership_expiry' => 'views/views_handler_field_membership_expiry.inc',
     //'MigrateDestinationMembershipEntityTerm' => 'membership_entity_term.migrate.inc',
   );
 }

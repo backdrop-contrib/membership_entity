@@ -522,16 +522,12 @@ public function views_data() {
    *   The data type from which to join.
    */
   function getRelationshipHandlerClass($entity_type, $left_type) {
-    // Look for an entity type which is used as bundle for the given entity
-    // type. If there is one, allow filtering the relation by bundle by using
-    // our own handler.
-    foreach (entity_get_info() as $type => $info) {
-      // In case we already join from the bundle entity we do not need to filter
-      // by bundle entity any more, so we stay with the general handler.
-      if (!empty($info['bundle of']) && $info['bundle of'] == $entity_type && $type != $left_type) {
-        return 'entity_views_handler_relationship_by_bundle';
-      }
-    }
+    // Drupal's Entity API offered entity_views_handler_relationship_by_bundle
+    // here for entity types with bundle entities (memberships have membership
+    // types). No Backdrop module provides it, so Views fell back to a broken
+    // handler that joins nothing, and every users -> membership relationship
+    // silently returned no rows. The plain handler joins correctly; filter
+    // on the membership type instead.
     return 'views_handler_relationship';
   }
 
