@@ -1,6 +1,25 @@
 # Changelog - Membership Entity
 
-## 1.x-1.0.3 (unreleased)
+## 1.x-1.0.4 (2026-10-29)
+
+Git tag: `1.x-1.0.4`.
+
+### Upgrading from 1.0.3
+Clear caches. No database changes. Views that use a user -> membership
+relationship start returning rows; check any that were built round the
+fault.
+
+- **Fixed: Views relationships from a user to their membership returned no
+  rows.** They used Drupal's `entity_views_handler_relationship_by_bundle`,
+  which no Backdrop module provides, so Views substituted a broken handler
+  that joined nothing. They now use the standard relationship handler.
+- New Views field **Membership: Expiry** (Membership Entity Term): the
+  furthest end date of a membership's terms ("Lifetime" for lifetime
+  members), or a marker such as "E" when that date falls in the next N
+  calendar months - for mailing lists that need renewal forms enclosed.
+  Works across a year end (a December list catches January and February).
+
+## 1.x-1.0.3 (2026-10-28)
 
 ### Upgrading from 1.0.2
 Run update.php and clear caches. Existing memberships and terms are kept;

@@ -42,6 +42,16 @@ function membership_entity_term_views_data_alter(&$data) {
     ),
   );
 
+  // When the membership's cover runs out, or a marker for "due for renewal",
+  // for mailing lists. One value per membership however many terms it holds.
+  $data['membership_entity']['expiry'] = array(
+    'title' => t('Expiry'),
+    'help' => t('The furthest end date of the membership\'s terms, or a marker when it falls in the next few months.'),
+    'field' => array(
+      'handler' => 'views_handler_field_membership_expiry',
+    ),
+  );
+
   $data['membership_entity']['renew'] = array(
     'title' => t('Renew'),
     'help' => t('A link to renew the membership.'),
