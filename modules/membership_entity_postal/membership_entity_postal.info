@@ -1,0 +1,7 @@
+name = Membership Entity Postal Members
+description = Members with no e-mail address: generates an undeliverable address for their account and stops mail being sent to it.
+type = module
+package = Memberships
+backdrop = 1.x
+
+dependencies[] = membership_entity

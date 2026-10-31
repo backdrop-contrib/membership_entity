@@ -1,0 +1,16 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for membership_entity_hierarchy.
+ */
+
+/**
+ * Implements hook_uninstall().
+ *
+ * The parent links themselves are left in place: the pid column belongs to
+ * membership_entity, which goes on honouring them.
+ */
+function membership_entity_hierarchy_uninstall() {
+  config('views.view.membership_entity_renewals')->delete();
+}

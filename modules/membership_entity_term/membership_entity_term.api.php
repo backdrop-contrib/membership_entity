@@ -62,3 +62,22 @@ function hook_membership_entity_term_end_date_alter(BackdropDateTime &$end, Memb
     $end = _membership_entity_term_modify_date($end, $modifier);
   }
 }
+
+/**
+ * Alter whether a membership may be renewed through its own renew form.
+ *
+ * Applied before any permission check, so setting FALSE removes the Renew tab
+ * for everybody, administrators included. membership_entity_hierarchy uses it
+ * for a sub-member whose parent pays, which is renewed with the parent instead.
+ *
+ * @param bool $renewable
+ *   Whether the membership can be renewed.
+ * @param MembershipEntity $membership
+ *   The membership to be renewed.
+ */
+function hook_membership_entity_term_renewable_alter(&$renewable, $membership) {
+  // Gift memberships are renewed by whoever gave them, not here.
+  if (!empty($membership->field_gift[LANGUAGE_NONE][0]['value'])) {
+    $renewable = FALSE;
+  }
+}

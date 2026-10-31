@@ -1,0 +1,431 @@
+<?php
+
+/**
+ * @file
+ * Postal members: members with no e-mail address.
+ *
+ * Backdrop requires a unique e-mail address on every user account, but real
+ * clubs have members who deal with them entirely by post. Such a member is
+ * given an account carrying a generated address at the reserved .invalid TLD,
+ * which can never be delivered to, and mail to it is abandoned before it
+ * leaves.
+ *
+ * The generator and the mail suppression always work while this module is
+ * enabled, because other code - an Ubercart checkout creating associates, an
+ * importer - may create such accounts. The "Allow members with no e-mail
+ * address" setting only decides whether the forms offer it.
+ */
+
+/**
+ * Implements hook_config_info().
+ */
+function membership_entity_postal_config_info() {
+  $prefixes['membership_entity_postal.settings'] = array(
+    'label' => t('Postal member settings'),
+    'group' => t('Membership Entity'),
+  );
+  return $prefixes;
+}
+
+/**
+ * Implements hook_mail_alter().
+ *
+ * Postal members hold an address that cannot receive mail by design. Sending to
+ * it would produce a delivery failure for every renewal notice, so the message
+ * is abandoned before it leaves.
+ */
+function membership_entity_postal_mail_alter(&$message) {
+  if (!empty($message['to']) && membership_entity_postal_is_postal_account($message['to'])) {
+    $message['send'] = FALSE;
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for membership_entity_global_settings_form().
+ */
+function membership_entity_postal_form_membership_entity_global_settings_form_alter(&$form, &$form_state) {
+  $config = config('membership_entity_postal.settings');
+
+  $postal = array(
+    '#type' => 'fieldset',
+    '#title' => t('Postal members'),
+    '#description' => t('Backdrop requires a unique e-mail address on every user account, but real clubs have members who deal with them entirely by post and have no address to give. With this enabled, such a member can be given an account carrying a generated address that can never be delivered to, so that they can still hold a membership, appear in listings and be counted.'),
+  );
+
+  $postal['postal_members'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Allow members with no e-mail address'),
+    '#default_value' => $config->get('postal_members'),
+  );
+
+  $postal['postal_mail_domain'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Domain for generated addresses'),
+    '#default_value' => $config->get('postal_mail_domain'),
+    '#placeholder' => membership_entity_postal_mail_domain(),
+    '#description' => t('Leave empty to use %default. Use a domain that can never receive mail — the reserved .invalid suffix guarantees it, so nothing is delivered and nothing bounces. A domain you actually own would collect these messages or reject them noisily.', array(
+      '%default' => membership_entity_postal_mail_domain(),
+    )),
+    '#states' => array(
+      'visible' => array(
+        ':input[name="postal_members"]' => array('checked' => TRUE),
+      ),
+    ),
+  );
+
+  // First on the page, where it has always been.
+  $form = array('postal' => $postal) + $form;
+
+  $form['#validate'][] = 'membership_entity_postal_global_settings_validate';
+  $form['#submit'][] = 'membership_entity_postal_global_settings_submit';
+}
+
+/**
+ * Validate handler for the postal settings on the global settings form.
+ */
+function membership_entity_postal_global_settings_validate($form, &$form_state) {
+  $domain = trim($form_state['values']['postal_mail_domain']);
+
+  // Catch a domain that cannot produce a valid address before it is saved and
+  // every postal account creation starts failing.
+  if ($domain !== '' && !valid_email_address('noreply+test@' . $domain)) {
+    form_set_error('postal_mail_domain', t('%domain does not produce a valid e-mail address.', array(
+      '%domain' => $domain,
+    )));
+  }
+}
+
+/**
+ * Submit handler for the postal settings on the global settings form.
+ */
+function membership_entity_postal_global_settings_submit($form, &$form_state) {
+  config('membership_entity_postal.settings')
+    ->set('postal_members', (bool) $form_state['values']['postal_members'])
+    ->set('postal_mail_domain', trim($form_state['values']['postal_mail_domain']))
+    ->save();
+}
+
+/**
+ * Implements hook_membership_entity_form_alter().
+ *
+ * A member who deals with the organisation entirely by post has no address to
+ * give, and Backdrop requires one. Offers to generate an undeliverable one where
+ * the membership form creates the member's account.
+ */
+function membership_entity_postal_membership_entity_form_alter(&$form, &$form_state, $membership) {
+  if (!isset($form['membership']['new_account']) || !config_get('membership_entity_postal.settings', 'postal_members')) {
+    return;
+  }
+
+  $form['membership']['new_account']['postal'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('No e-mail address (postal member)'),
+    '#description' => t('Generates an undeliverable address at %domain. They will not be able to sign in, which is intended: the account exists so they can hold a membership.', array(
+      '%domain' => membership_entity_postal_mail_domain(),
+    )),
+  );
+  $form['membership']['new_account']['mail']['#states'] = array(
+    'invisible' => array(
+      ':input[name="new_account[postal]"]' => array('checked' => TRUE),
+    ),
+  );
+
+  // Ahead of membership_entity_form_validate(), which then checks the generated
+  // address like any other.
+  $form['#validate'] = isset($form['#validate']) ? $form['#validate'] : array();
+  array_unshift($form['#validate'], 'membership_entity_postal_new_account_validate');
+}
+
+/**
+ * Validate handler: generate the address of a postal member being added.
+ *
+ * @see membership_entity_postal_membership_entity_form_alter()
+ */
+function membership_entity_postal_new_account_validate($form, &$form_state) {
+  $values = isset($form_state['values']['new_account']) ? $form_state['values']['new_account'] : array();
+  if (empty($values['postal']) || !_membership_entity_creating_account($form_state)) {
+    return;
+  }
+
+  // Derived from the username, which Backdrop holds to be unique. An empty or
+  // unacceptable name is reported by membership_entity_form_validate().
+  $mail = membership_entity_postal_generate_mail(trim($values['name']));
+  form_set_value($form['membership']['new_account']['mail'], $mail, $form_state);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for membership_entity_join_form().
+ *
+ * Members who deal with the club entirely by post have no address to give.
+ * They still need an account to hold a membership, so one is generated for
+ * them.
+ */
+function membership_entity_postal_form_membership_entity_join_form_alter(&$form, &$form_state) {
+  if (!isset($form['user']['account']['mail'])) {
+    return;
+  }
+
+  // The e-mail address is required, but a postal member has none to give and
+  // one is generated for them during validation. Required is enforced while
+  // validation recurses through the children, before any handler can run, so
+  // the flag has to be lifted on the built form instead.
+  $form['#membership_entity_postal_parents'] = array('user');
+  $form['#after_build'][] = 'membership_entity_postal_required_after_build';
+
+  if (!config_get('membership_entity_postal.settings', 'postal_members')) {
+    return;
+  }
+
+  $form['user']['account']['postal'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('I have no e-mail address (postal member)'),
+    '#description' => t('Tick this only if you deal with us entirely by post. You will not be able to sign in or reset a password, and we will contact you by post.'),
+    '#weight' => 1,
+  );
+
+  foreach (array('mail', 'pass') as $key) {
+    if (isset($form['user']['account'][$key])) {
+      $form['user']['account'][$key]['#states']['invisible'][':input[name="user[postal]"]'] = array('checked' => TRUE);
+    }
+  }
+
+  // Ahead of membership_entity_user_account_form_validate(), which then checks
+  // the generated address like any other.
+  array_unshift($form['#validate'], 'membership_entity_postal_join_validate');
+}
+
+/**
+ * Validate handler: generate the address and password of a postal member.
+ *
+ * @see membership_entity_postal_form_membership_entity_join_form_alter()
+ */
+function membership_entity_postal_join_validate($form, &$form_state) {
+  $values = $form_state['values']['user'];
+  if (empty($values['postal'])) {
+    return;
+  }
+
+  // The entered address, if any, is discarded. An empty or unacceptable name is
+  // reported by membership_entity_user_account_form_validate().
+  $name = isset($values['name']) ? trim($values['name']) : '';
+  form_set_value($form['user']['account']['mail'], membership_entity_postal_generate_mail($name), $form_state);
+
+  // A postal member's address can never receive anything, so a password they
+  // could use is a door with no key and no way to ask for one. Give the account
+  // a long random one instead: undeliverable and unenterable together.
+  if (isset($form['user']['account']['pass'])) {
+    form_set_value($form['user']['account']['pass'], user_password(32), $form_state);
+  }
+}
+
+/**
+ * The domain used for generated postal member addresses.
+ *
+ * Defaults to the site's own host with .invalid appended. RFC 2606 reserves
+ * .invalid so the address can never resolve: nothing is delivered to it and
+ * nothing bounces back from it, which is the whole point — these accounts
+ * exist so that a member with no e-mail address can still hold a membership.
+ *
+ * @return string
+ *   A domain name, without a leading @.
+ */
+function membership_entity_postal_mail_domain() {
+  $domain = config_get('membership_entity_postal.settings', 'postal_mail_domain');
+  if (!empty($domain)) {
+    return $domain;
+  }
+
+  global $base_url;
+  $host = parse_url($base_url, PHP_URL_HOST);
+  $host = preg_replace('/^www\./', '', (string) $host);
+
+  return (!empty($host) ? $host : 'membership') . '.invalid';
+}
+
+/**
+ * Generate an undeliverable e-mail address for a member who has none.
+ *
+ * Derived from the username, which Backdrop already holds to be unique, so a
+ * single save is enough — an address built from the uid would need the account
+ * to be written first. A counter is appended in the unlikely event of a
+ * collision after the username has been reduced to address-safe characters.
+ *
+ * @param string $username
+ *   The account name to derive the address from.
+ *
+ * @return string
+ *   An e-mail address at the postal domain.
+ */
+function membership_entity_postal_generate_mail($username) {
+  $local = preg_replace('/[^a-zA-Z0-9._-]/', '.', $username);
+  $local = trim(preg_replace('/\.{2,}/', '.', $local), '.');
+  if ($local === '') {
+    $local = 'member';
+  }
+
+  $domain = membership_entity_postal_mail_domain();
+  $mail = 'noreply+' . backdrop_strtolower($local) . '@' . $domain;
+
+  $suffix = 0;
+  while (db_query('SELECT uid FROM {users} WHERE mail = :mail', array(':mail' => $mail))->fetchField()) {
+    $suffix++;
+    $mail = 'noreply+' . backdrop_strtolower($local) . '.' . $suffix . '@' . $domain;
+  }
+
+  return $mail;
+}
+
+/**
+ * Whether an account's address is a generated postal one.
+ *
+ * Recognised by the domain rather than a flag on the account, so no column is
+ * added to {users} and the state is visible to anyone reading the address.
+ *
+ * @param object|string $account
+ *   A user account object, or an e-mail address.
+ *
+ * @return bool
+ *   TRUE if the address is a generated postal address.
+ */
+function membership_entity_postal_is_postal_account($account) {
+  $mail = is_object($account) ? $account->mail : $account;
+  if (empty($mail)) {
+    return FALSE;
+  }
+
+  $mail = membership_entity_mail_address($mail);
+
+  $domain = '@' . membership_entity_postal_mail_domain();
+  return backdrop_strtolower(backdrop_substr($mail, -backdrop_strlen($domain))) === backdrop_strtolower($domain);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for user_register_form().
+ *
+ * Postal members are usually created by an administrator rather than by
+ * self-registration, so the option has to exist on the account creation form as
+ * well as on the join form.
+ */
+function membership_entity_postal_form_user_register_form_alter(&$form, &$form_state) {
+  if (!config_get('membership_entity_postal.settings', 'postal_members') || !user_access('administer users')) {
+    return;
+  }
+
+  $form['account']['postal'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Postal member — no e-mail address'),
+    '#description' => t('Generates an undeliverable address at %domain and a random password. The account cannot sign in or reset a password, which is intended: it exists so the member can hold a membership. Enter a real address later to turn it into an ordinary account.', array(
+      '%domain' => membership_entity_postal_mail_domain(),
+    )),
+    '#weight' => -1,
+  );
+
+  $form['account']['mail']['#states']['invisible'][':input[name="postal"]'] = array('checked' => TRUE);
+  if (isset($form['account']['pass'])) {
+    $form['account']['pass']['#states']['invisible'][':input[name="postal"]'] = array('checked' => TRUE);
+  }
+
+  // Hiding an element with #states is presentation only: the server still
+  // enforces #required, and rejects the empty address before any form level
+  // handler can generate one. Lift the flag instead, once the checkbox is known
+  // to be ticked. See membership_entity_postal_required_after_build().
+  $form['#membership_entity_postal_parents'] = array();
+  $form['#after_build'][] = 'membership_entity_postal_required_after_build';
+
+  array_unshift($form['#validate'], 'membership_entity_postal_user_register_validate');
+}
+
+/**
+ * Form #after_build callback: drop required on the fields a postal member
+ * cannot fill in.
+ *
+ * An element's #required is checked while validation recurses through the
+ * form's children, which happens before any form level #validate handler runs,
+ * so a handler cannot supply the missing values in time. Clearing the flag on
+ * a built form is the only point late enough to see the checkbox and early
+ * enough to precede validation.
+ *
+ * @param array $form
+ *   The built form.
+ * @param array $form_state
+ *   The current state of the form.
+ *
+ * @return array
+ *   The form with required lifted where the postal option is in use.
+ */
+function membership_entity_postal_required_after_build($form, &$form_state) {
+  $parents = $form['#membership_entity_postal_parents'];
+
+  // Locate the account elements and the submitted checkbox, which sit under
+  // 'user' on the join form and at the top level on the registration form.
+  $account = &$form;
+  $input = isset($form_state['input']) ? $form_state['input'] : array();
+  foreach ($parents as $parent) {
+    $account = &$account[$parent];
+    $input = isset($input[$parent]) ? $input[$parent] : array();
+  }
+
+  if (empty($input['postal'])) {
+    return $form;
+  }
+
+  foreach (array('mail', 'pass') as $key) {
+    if (isset($account['account'][$key])) {
+      $account['account'][$key]['#required'] = FALSE;
+    }
+  }
+
+  // Where an administrator creates the account, core makes the password
+  // conditionally required through an #element_validate rather than through
+  // #required, and element validators run during the same recursion. A postal
+  // member is given a random password they can never use, so the check has
+  // nothing left to protect.
+  if (isset($account['account']['pass']['#element_validate'])) {
+    $account['account']['pass']['#element_validate'] = array_values(array_diff(
+      $account['account']['pass']['#element_validate'],
+      array('user_pass_required_validate')
+    ));
+  }
+
+  return $form;
+}
+
+/**
+ * Validate handler: generate an address for a postal member.
+ *
+ * @see membership_entity_postal_form_user_register_form_alter()
+ */
+function membership_entity_postal_user_register_validate($form, &$form_state) {
+  if (empty($form_state['values']['postal'])) {
+    return;
+  }
+
+  $name = $form_state['values']['name'];
+  if (empty($name)) {
+    // Core will complain about the missing name; nothing to derive from.
+    return;
+  }
+
+  form_set_value($form['account']['mail'], membership_entity_postal_generate_mail($name), $form_state);
+
+  // Undeliverable and unenterable together: without a random password the
+  // account would be reachable by anyone who guessed a blank one.
+  if (isset($form['account']['pass'])) {
+    form_set_value($form['account']['pass'], user_password(32), $form_state);
+  }
+}
+
+/**
+ * Deprecated: use membership_entity_postal_generate_mail().
+ *
+ * Kept for one release, for callers written before the split.
+ *
+ * @param string $username
+ *   The account name to derive the address from.
+ *
+ * @return string
+ *   An e-mail address at the postal domain.
+ */
+function membership_entity_generate_postal_mail($username) {
+  return membership_entity_postal_generate_mail($username);
+}

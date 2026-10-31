@@ -210,41 +210,6 @@ function membership_entity_settings_form($form, &$form_state, $data = array()) {
     ),
   );
 
-  $form['hierarchy_settings'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('Sub-members'),
-    '#collapsible' => TRUE,
-    '#collapsed' => empty($data['max_children']),
-    '#description' => t('A membership of this type may hold other memberships beneath it — the members of a household, or of an affiliated association. Each sub-member keeps their own membership record, member id and page, and loses access whenever this membership is not active.'),
-  );
-
-  $form['hierarchy_settings']['max_children'] = array(
-    '#type' => 'select',
-    '#title' => t('Maximum sub-members'),
-    '#options' => array(
-      '0' => t('None — this membership type cannot have sub-members'),
-      FIELD_CARDINALITY_UNLIMITED => t('Unlimited'),
-    ) + backdrop_map_assoc(range(1, 20)),
-    '#default_value' => $data['max_children'],
-    '#description' => t('Set to none for an ordinary single membership. A household might allow 5; an association, unlimited. This is separate from the number of users per membership above: users share this one membership, whereas sub-members each hold a membership of their own.'),
-  );
-
-  $form['hierarchy_settings']['child_terms'] = array(
-    '#type' => 'radios',
-    '#title' => t('Who pays'),
-    '#options' => array(
-      'inherit' => t('One payment covers everyone — renewing this membership renews every sub-member with it.'),
-      'roster' => t('One payment covers everyone, but the membership supplies a list — sub-members are renewed individually from it.'),
-      'own' => t('Each sub-member renews separately — and still loses access if this membership lapses.'),
-    ),
-    '#default_value' => $data['child_terms'],
-    '#states' => array(
-      'invisible' => array(
-        ':input[name="max_children"]' => array('value' => '0'),
-      ),
-    ),
-  );
-
   $form['#validate'][] = 'membership_entity_settings_form_validate';
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
@@ -265,33 +230,6 @@ function membership_entity_settings_form($form, &$form_state, $data = array()) {
  */
 function membership_entity_global_settings_form($form, &$form_state) {
   $config = config('membership_entity.settings');
-
-  $form['postal'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('Postal members'),
-    '#description' => t('Backdrop requires a unique e-mail address on every user account, but real clubs have members who deal with them entirely by post and have no address to give. With this enabled, such a member can be given an account carrying a generated address that can never be delivered to, so that they can still hold a membership, appear in listings and be counted.'),
-  );
-
-  $form['postal']['postal_members'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Allow members with no e-mail address'),
-    '#default_value' => $config->get('postal_members'),
-  );
-
-  $form['postal']['postal_mail_domain'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Domain for generated addresses'),
-    '#default_value' => $config->get('postal_mail_domain'),
-    '#placeholder' => membership_entity_postal_mail_domain(),
-    '#description' => t('Leave empty to use %default. Use a domain that can never receive mail — the reserved .invalid suffix guarantees it, so nothing is delivered and nothing bounces. A domain you actually own would collect these messages or reject them noisily.', array(
-      '%default' => membership_entity_postal_mail_domain(),
-    )),
-    '#states' => array(
-      'visible' => array(
-        ':input[name="postal_members"]' => array('checked' => TRUE),
-      ),
-    ),
-  );
 
   $form['pages'] = array(
     '#type' => 'fieldset',
@@ -334,16 +272,6 @@ function membership_entity_global_settings_form($form, &$form_state) {
  * @see membership_entity_global_settings_form()
  */
 function membership_entity_global_settings_form_validate($form, &$form_state) {
-  $domain = trim($form_state['values']['postal_mail_domain']);
-
-  // Catch a domain that cannot produce a valid address before it is saved and
-  // every postal account creation starts failing.
-  if ($domain !== '' && !valid_email_address('noreply+test@' . $domain)) {
-    form_set_error('postal_mail_domain', t('%domain does not produce a valid e-mail address.', array(
-      '%domain' => $domain,
-    )));
-  }
-
   foreach (array('join_path' => 'user/join', 'renew_path' => 'user/renew') as $key => $own_path) {
     $path = trim($form_state['values'][$key]);
     if ($path === '' || url_is_external($path)) {
@@ -367,8 +295,6 @@ function membership_entity_global_settings_form_validate($form, &$form_state) {
  */
 function membership_entity_global_settings_form_submit($form, &$form_state) {
   config('membership_entity.settings')
-    ->set('postal_members', (bool) $form_state['values']['postal_members'])
-    ->set('postal_mail_domain', trim($form_state['values']['postal_mail_domain']))
     ->set('join_path', trim($form_state['values']['join_path']))
     ->set('renew_path', trim($form_state['values']['renew_path']))
     ->save();
@@ -509,81 +435,6 @@ function membership_entity_edit_form($form, &$form_state, $membership = NULL, $t
 }
 
 /**
- * Page callback: add a sub-member to a membership.
- *
- * Opens the ordinary membership add form with "Belongs to" already set to the
- * membership the action was followed from, so that adding a member to a
- * household or association starts from that household or association rather
- * than from a list of every membership on the site. Where more than one
- * membership type exists the type is chosen first, exactly as the generic add
- * page does.
- *
- * @param MembershipEntity $parent
- *   The membership the new sub-member will belong to.
- * @param string $type_url_str
- *   The membership type to create, with underscores replaced by dashes.
- *   Omitted on the first step when there is more than one type.
- *
- * @return array|string
- *   A render array, or the built add form.
- */
-function membership_entity_add_sub_member_page(MembershipEntity $parent, $type_url_str = NULL) {
-  $bundles = membership_entity_get_bundles();
-  if (empty($bundles)) {
-    return array(
-      '#markup' => t('There are no membership types, so a sub-member cannot be created.'),
-    );
-  }
-
-  $type = NULL;
-  if (isset($type_url_str)) {
-    $candidate = str_replace('-', '_', $type_url_str);
-    if (!isset($bundles[$candidate])) {
-      return MENU_NOT_FOUND;
-    }
-    $type = $candidate;
-  }
-  elseif (count($bundles) == 1) {
-    // Nothing to choose, so do not ask.
-    $type = key($bundles);
-  }
-
-  if (isset($type)) {
-    // t() has already sanitized the label into the string, so the title must
-    // not be run through check_plain() a second time.
-    backdrop_set_title(t('Add sub-member to @parent', array(
-      '@parent' => membership_entity_parent_label($parent->mid),
-    )), PASS_THROUGH);
-
-    $membership = membership_entity_create(array(
-      'type' => $type,
-      'pid' => $parent->mid,
-    ));
-
-    return backdrop_get_form('membership_entity_edit_form', $membership, $type);
-  }
-
-  $items = array();
-  foreach ($bundles as $bundle => $bundle_type) {
-    $items[] = l($bundle_type->label, 'membership/' . $parent->mid . '/add-sub-member/' . str_replace('_', '-', $bundle));
-  }
-
-  return array(
-    'help' => array(
-      '#prefix' => '<p>',
-      '#suffix' => '</p>',
-      '#markup' => t('Which type of membership should the new sub-member of @parent hold?', array(
-        '@parent' => membership_entity_parent_label($parent->mid),
-      )),
-    ),
-    'types' => array(
-      '#theme' => 'item_list',
-      '#items' => $items,
-    ),
-  );
-}
-
-/**
  * Page callback: the join form, or a redirect for somebody coming back.
  *
  * A lapsed member rejoining is not filling in a new membership — they already
@@ -704,13 +555,6 @@ function membership_entity_join_form($form, &$form_state, $bundle = 'membership'
         $form['user'][$field_name]['#access'] = FALSE;
       }
     }
-
-    // The e-mail address is required, but a postal member has none to give and
-    // one is generated for them during validation. Required is enforced while
-    // validation recurses through the children, before any handler below can
-    // run, so the flag has to be lifted on the built form instead.
-    $form['#membership_entity_postal_parents'] = array('user');
-    $form['#after_build'][] = 'membership_entity_postal_required_after_build';
 
     // User account validate handlers need to run first.
     array_unshift($form['#validate'], 'membership_entity_user_join_register_validate');
@@ -906,84 +750,6 @@ function membership_entity_form(&$form, &$form_state) {
     }
   }
 
-  // A membership that has sub-members of its own cannot also sit beneath
-  // another — memberships are limited to two levels.
-  $has_children = !empty($membership->mid) && membership_entity_child_count($membership->mid);
-
-  // Arrived from the "Add sub-member" action on a parent's page: the parent is
-  // decided by where the administrator was standing, so it is shown rather
-  // than offered. Only a new membership can be pre-filled this way; editing an
-  // existing one always goes through the selector below.
-  if (empty($membership->mid) && !empty($membership->pid)) {
-    $form['membership']['pid'] = array(
-      '#type' => 'value',
-      '#value' => $membership->pid,
-    );
-    $form['membership']['pid_display'] = array(
-      '#type' => 'item',
-      '#title' => t('Belongs to'),
-      '#markup' => check_plain(membership_entity_parent_label($membership->pid)),
-      '#description' => t('This member is being added to that membership. To attach them elsewhere, save this membership and then edit it.'),
-    );
-  }
-  elseif (!$has_children && user_access('administer memberships')) {
-    if ($parents = membership_entity_eligible_parents($membership)) {
-      $form['membership']['pid'] = array(
-        '#type' => 'select',
-        '#title' => t('Belongs to'),
-        '#options' => array(0 => t('- None -')) + $parents,
-        '#default_value' => !empty($membership->pid) ? $membership->pid : 0,
-        '#description' => t('The household or association this membership belongs to. While that membership is not active this member has no access, whatever their own status says. Changing it moves the member; setting it to none uncouples them onto their own membership.'),
-      );
-    }
-  }
-  elseif (!$has_children) {
-    // A household head or association secretary may only ever attach to their
-    // own membership. They can let a member go, but moving somebody into a
-    // different association is an administrator's decision — otherwise one
-    // secretary could push members onto another's list.
-    $sub_op = empty($membership->mid) ? 'create' : 'edit';
-    $own = membership_entity_managed_parents($sub_op);
-
-    if (!empty($membership->pid) && membership_entity_manages_sub_membership('detach', $membership)) {
-      $current = membership_entity_managed_parents('edit');
-      $options = array(0 => t('- Remove from this membership -'));
-      if (isset($current[$membership->pid])) {
-        $options[$membership->pid] = $current[$membership->pid];
-      }
-
-      $form['membership']['pid'] = array(
-        '#type' => 'select',
-        '#title' => t('Belongs to'),
-        '#options' => $options,
-        '#default_value' => $membership->pid,
-        '#description' => t('Removing this member leaves their own membership and user account untouched — they simply no longer belong to yours. Moving them to a different membership is done by a site administrator.'),
-      );
-    }
-    elseif ($sub_op == 'create' && count($own) == 1) {
-      // Nothing to choose, so do not offer a choice: fix it to the one
-      // membership they administer.
-      $form['membership']['pid'] = array(
-        '#type' => 'value',
-        '#value' => key($own),
-      );
-      $form['membership']['pid_display'] = array(
-        '#type' => 'item',
-        '#title' => t('Belongs to'),
-        '#markup' => check_plain(reset($own)),
-      );
-    }
-    elseif ($sub_op == 'create' && count($own) > 1) {
-      $form['membership']['pid'] = array(
-        '#type' => 'select',
-        '#title' => t('Belongs to'),
-        '#options' => $own,
-        '#default_value' => !empty($membership->pid) ? $membership->pid : key($own),
-        '#required' => TRUE,
-      );
-    }
-  }
-
   // The date they first joined, which is not derivable from the terms: on this
   // site 23 of 68 imported memberships have a created date years earlier than
   // their earliest surviving term. Presented the way core presents a node's
@@ -1028,7 +794,7 @@ function membership_entity_form(&$form, &$form_state) {
 /**
  * Build the fields for creating the primary member's account on this form.
  *
- * Kept deliberately small: a username, an address and the postal option. Roles,
+ * Kept deliberately small: a username and an address. Roles,
  * status and the password are not offered, because the person filling this in
  * may be an association secretary rather than a site administrator. The account
  * is created as an ordinary authenticated user with a random password, and the
@@ -1072,23 +838,6 @@ function _membership_entity_new_account_elements(&$form, $conditional) {
     '#title' => t('E-mail address'),
     '#maxlength' => EMAIL_MAX_LENGTH,
   );
-
-  // A member who deals with the organisation entirely by post has no address to
-  // give, and Backdrop requires one. Generate an undeliverable one instead.
-  if (config_get('membership_entity.settings', 'postal_members')) {
-    $form['membership']['new_account']['postal'] = array(
-      '#type' => 'checkbox',
-      '#title' => t('No e-mail address (postal member)'),
-      '#description' => t('Generates an undeliverable address at %domain. They will not be able to sign in, which is intended: the account exists so they can hold a membership.', array(
-        '%domain' => membership_entity_postal_mail_domain(),
-      )),
-    );
-    $form['membership']['new_account']['mail']['#states'] = array(
-      'invisible' => array(
-        ':input[name="new_account[postal]"]' => array('checked' => TRUE),
-      ),
-    );
-  }
 }
 
 /**
@@ -1101,14 +850,14 @@ function _membership_entity_new_account_elements(&$form, $conditional) {
  * @param array $form
  *   The membership form.
  * @param array $form_state
- *   The current state of the form, whose values are altered in place: a postal
- *   member's generated address is written back so the submit handler can use
- *   it.
+ *   The current state of the form, whose values are altered in place: the
+ *   trimmed name and address are written back so the submit handler can use
+ *   them. An address generated by membership_entity_postal arrives here already
+ *   filled in, and is checked like any other.
  */
 function _membership_entity_new_account_validate($form, &$form_state) {
   $values = $form_state['values']['new_account'];
   $element = $form['membership']['new_account'];
-  $postal = !empty($values['postal']);
 
   $name = trim($values['name']);
   form_set_value($element['name'], $name, $form_state);
@@ -1121,15 +870,6 @@ function _membership_entity_new_account_validate($form, &$form_state) {
   }
   elseif ((bool) db_query_range('SELECT uid FROM {users} WHERE name = :name', 0, 1, array(':name' => $name))->fetchField()) {
     form_set_error('new_account][name', t('The name %name is already taken.', array('%name' => $name)));
-  }
-
-  // A postal member's address is derived from the username, so it can only be
-  // built once the name is known to be good and unique.
-  if ($postal) {
-    if (!form_get_errors()) {
-      form_set_value($element['mail'], membership_entity_generate_postal_mail($name), $form_state);
-    }
-    return;
   }
 
   $mail = trim($values['mail']);
@@ -1429,87 +1169,6 @@ function membership_entity_form_validate($form, &$form_state) {
     }
   }
 
-  // Anyone without full membership administration may only attach to their own
-  // membership. Enforced here as well as in the form: the select can be posted
-  // around, so restricting the options is presentation, not security.
-  if (isset($values['pid']) && !user_access('administer memberships')) {
-    $submitted = (int) $values['pid'];
-
-    // A membership that has not been saved yet has no original parent, however
-    // the form was seeded — the "Add sub-member" action pre-fills pid, and that
-    // must still be checked rather than waved through as "unchanged".
-    $original = (!empty($membership->mid) && !empty($membership->pid)) ? (int) $membership->pid : 0;
-
-    if ($submitted !== $original) {
-      if ($submitted === 0) {
-        // Letting a member go.
-        if (!membership_entity_manages_sub_membership('detach', $membership)) {
-          form_set_error('pid', t('You do not have permission to remove this member.'));
-        }
-      }
-      else {
-        // Attaching, whether new or moved. Moving between parents is barred
-        // outright — a member who has left one membership is re-attached by an
-        // administrator, so that nobody can push members onto another list.
-        $op = empty($membership->mid) ? 'create' : 'edit';
-        $allowed = membership_entity_managed_parents($op);
-
-        if ($original !== 0) {
-          form_set_error('pid', t('You cannot move this member to a different membership. Remove them, and a site administrator can attach them elsewhere.'));
-        }
-        elseif (!isset($allowed[$submitted])) {
-          form_set_error('pid', t('You do not have permission to attach a member to that membership.'));
-        }
-      }
-    }
-  }
-
-  // Validate the parent membership. The select only offers eligible parents,
-  // but a membership may have gained sub-members or filled up since the form
-  // was built, and the value can be posted directly.
-  if (isset($values['pid']) && !empty($values['pid'])) {
-    if (!empty($membership->mid) && $values['pid'] == $membership->mid) {
-      form_set_error('pid', t('A membership cannot belong to itself.'));
-    }
-    elseif (!empty($membership->mid) && membership_entity_child_count($membership->mid)) {
-      form_set_error('pid', t('This membership has sub-members of its own, so it cannot also belong to another membership.'));
-    }
-    elseif ($parent = membership_entity_load($values['pid'])) {
-      $parent_settings = membership_entity_get_bundle_settings($parent->type);
-      $max = $parent_settings['max_children'];
-
-      if (!empty($parent->pid)) {
-        form_set_error('pid', t('%id already belongs to another membership, so it cannot take sub-members itself.', array(
-          '%id' => $parent->member_id,
-        )));
-      }
-      elseif (empty($max)) {
-        form_set_error('pid', t('%id is of a type that does not allow sub-members.', array(
-          '%id' => $parent->member_id,
-        )));
-      }
-      elseif ($max != FIELD_CARDINALITY_UNLIMITED && $values['pid'] != $membership->pid
-        && membership_entity_child_count($parent->mid) >= $max) {
-        form_set_error('pid', t('%id already has its maximum of @max sub-members.', array(
-          '%id' => $parent->member_id,
-          '@max' => $max,
-        )));
-      }
-      // Moving a member who renews separately under a parent that pays for
-      // everyone leaves their own terms in place, where they can still expire
-      // the member even though the parent is paid up. Worth saying, not worth
-      // destroying term history over.
-      elseif ($parent_settings['child_terms'] == 'inherit' && !empty($membership->terms)) {
-        backdrop_set_message(t('%id pays for all of its sub-members, but this membership has terms of its own. Those terms still apply and can expire this member. Review them if that is not what you want.', array(
-          '%id' => $parent->member_id,
-        )), 'warning');
-      }
-    }
-    else {
-      form_set_error('pid', t('The selected parent membership no longer exists.'));
-    }
-  }
-
   // Validate custom fields.
   entity_form_field_validate('membership_entity', $form, $form_state);
 }
@@ -1529,14 +1188,10 @@ function membership_entity_user_join_register_validate($form, &$form_state) {
 function membership_entity_user_join_register_submit($form, &$form_state) {
   $values = &$form_state['values']['user'];
 
+  // A postal member's random password is put into $values['pass'] by
+  // membership_entity_postal during validation, so it arrives here like any
+  // other.
   $pass = !config_get('system.core', 'user_email_verification') ? $pass = $values['pass'] : user_password();
-
-  // A postal member's address can never receive anything, so a password they
-  // could use is a door with no key and no way to ask for one. Give the account
-  // a long random one instead: undeliverable and unenterable together.
-  if (!empty($values['postal'])) {
-    $pass = user_password(32);
-  }
 
   // Remove unneeded values.
   form_state_values_clean($form_state);

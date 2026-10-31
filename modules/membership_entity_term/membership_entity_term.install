@@ -27,16 +27,11 @@ function membership_entity_term_update_1000() {
  * one being added later. The tab it provides is registered by the view, which
  * means without this the menu item does not exist either and the feature is
  * simply absent, with nothing to say why.
+ *
+ * Now a no-op: the renewals view ships with membership_entity_hierarchy, which
+ * installs it, and membership_entity_update_1003() hands an existing copy over.
  */
 function membership_entity_term_update_1001() {
-  $name = 'views.view.membership_entity_renewals';
-
-  // Never overwrite a site that already has it — most likely because somebody
-  // built their own before this shipped, and theirs is the one in use.
-  if (config($name)->isNew()) {
-    config_install_default_config('membership_entity_term', $name);
-    menu_rebuild();
-  }
 }
 
 /**
@@ -147,7 +142,5 @@ function membership_entity_term_schema() {
  * been left behind; it is cleared here along with the renewals view.
  */
 function membership_entity_term_uninstall() {
-  foreach (array('membership_entity_terms', 'membership_entity_renewals') as $name) {
-    config('views.view.' . $name)->delete();
-  }
+  config('views.view.membership_entity_terms')->delete();
 }

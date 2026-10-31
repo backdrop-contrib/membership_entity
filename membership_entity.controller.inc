@@ -172,7 +172,9 @@ class MembershipEntityController extends EntityPlusController {
           );
         }
       }
-      _membership_entity_update_roles($roles);
+      // The stored record still holds the old status, so it must not count as
+      // another membership granting the role.
+      _membership_entity_update_roles($roles, empty($membership->mid) ? array() : array($membership->mid));
     }
     catch (Exception $e) {
       $transaction->rollback();
@@ -208,7 +210,8 @@ class MembershipEntityController extends EntityPlusController {
       // A membership that has just been detached from its parent is on its own
       // from here. Where the parent was paying for it, it has no term of its
       // own and would otherwise never expire, so modules are given the chance
-      // to put that right — see membership_entity_term_membership_entity_uncoupled().
+      // to put that right - see
+      // membership_entity_hierarchy_membership_entity_uncoupled().
       if (!empty($original_pid) && empty($membership->pid)) {
         module_invoke_all('membership_entity_uncoupled', $membership, $original_pid);
       }
@@ -248,7 +251,7 @@ class MembershipEntityController extends EntityPlusController {
           );
         }
       }
-      _membership_entity_update_roles($roles);
+      _membership_entity_update_roles($roles, array_keys($memberships));
 
       // Delete secondary members.
       db_delete('membership_entity_secondary_member')

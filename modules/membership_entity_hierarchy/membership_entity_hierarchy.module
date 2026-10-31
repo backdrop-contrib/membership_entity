@@ -1,0 +1,1430 @@
+<?php
+
+/**
+ * @file
+ * Sub-members: memberships that belong to another membership.
+ *
+ * One mechanism covers both the household sharing a subscription and the
+ * affiliated association with its own members - the difference is a number,
+ * max_children on the membership type. Sub-members keep their own membership
+ * record, member id, fields, terms and page.
+ *
+ * The link itself - the pid column, effective status, the role cascade and the
+ * Views and token data - belongs to membership_entity, so that a site which
+ * already holds links keeps honouring them whatever is enabled. This module is
+ * everything that creates or manages them.
+ */
+
+/**
+ * Implements hook_autoload_info().
+ */
+function membership_entity_hierarchy_autoload_info() {
+  return array(
+    'views_handler_field_membership_renewal_state' => 'views/views_handler_field_membership_renewal_state.inc',
+  );
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function membership_entity_hierarchy_views_api() {
+  return array(
+    'api' => 3,
+    'path' => backdrop_get_path('module', 'membership_entity_hierarchy') . '/views',
+  );
+}
+
+/**
+ * Implements hook_permission().
+ *
+ * Sub-member administration, for the head of a household or the secretary of
+ * an association. Backdrop roles are global, so "only my own members" cannot be
+ * expressed as a role alone - these are checked against the membership's
+ * parent in membership_entity_hierarchy_membership_entity_access(). Only offered
+ * on types that can actually hold sub-members.
+ */
+function membership_entity_hierarchy_permission() {
+  $perms = array();
+
+  foreach (membership_entity_get_bundles() as $type_name => $type) {
+    $settings = membership_entity_get_bundle_settings($type_name);
+    if (empty($settings['max_children'])) {
+      continue;
+    }
+
+    $perms += array(
+      $type_name . ' view sub-memberships' => array(
+        'title' => t('View the sub-members of their own %type membership', array('%type' => $type->label)),
+      ),
+      $type_name . ' edit sub-memberships' => array(
+        'title' => t('Edit the sub-members of their own %type membership', array('%type' => $type->label)),
+      ),
+      $type_name . ' create sub-memberships' => array(
+        'title' => t('Add sub-members to their own %type membership', array('%type' => $type->label)),
+        'description' => t('The new membership is always attached to their own; they cannot attach it elsewhere.'),
+      ),
+      $type_name . ' detach sub-memberships' => array(
+        'title' => t('Remove a sub-member from their own %type membership', array('%type' => $type->label)),
+        'description' => t('Removes the member from the membership. Their own membership and user account are untouched — deleting those stays with the site administrator, or with the member themselves through the "delete own membership" permission. Attaching a member to a different membership is also an administrator action.'),
+      ),
+    );
+  }
+
+  return $perms;
+}
+
+/**
+ * Implements hook_membership_entity_access().
+ *
+ * The head of a household or the secretary of an association managing the
+ * memberships beneath their own. Deliberately no 'delete' - removing someone
+ * from an association detaches them and leaves their membership and account
+ * intact. Destroying either stays with the site administrator, or with the
+ * member themselves via 'delete own membership'.
+ */
+function membership_entity_hierarchy_membership_entity_access($op, $membership = NULL, $account = NULL) {
+  if (is_object($membership) && in_array($op, array('view', 'edit'), TRUE)) {
+    $user = isset($account) ? $account : $GLOBALS['user'];
+    if (membership_entity_hierarchy_manages_sub_membership($op, $membership, $user)) {
+      return TRUE;
+    }
+  }
+
+  return NULL;
+}
+
+/**
+ * Whether an account administers a membership by virtue of holding its parent.
+ *
+ * Backdrop roles are global, so "only the members of my own association" cannot
+ * be expressed by a permission alone — it depends on the relationship between
+ * two memberships. The permission is checked against the *parent's* type,
+ * because the capability comes from being the head of that household or
+ * association.
+ *
+ * @param string $op
+ *   One of view, edit, create or detach. There is no delete: an association
+ *   removes a member by detaching them, never by destroying their record.
+ * @param MembershipEntity|int $membership
+ *   The sub-membership being acted on, or the parent's mid when $op is
+ *   'create' — there is no sub-membership yet in that case.
+ * @param object $account
+ *   The account to check. Defaults to the logged in user.
+ *
+ * @return bool
+ *   TRUE if the account may perform the operation on that sub-membership.
+ */
+function membership_entity_hierarchy_manages_sub_membership($op, $membership, $account = NULL) {
+  $user = isset($account) ? $account : $GLOBALS['user'];
+  if (empty($user->uid)) {
+    return FALSE;
+  }
+
+  $pid = is_object($membership) ? $membership->pid : $membership;
+  if (empty($pid)) {
+    return FALSE;
+  }
+
+  $parent = db_query('SELECT uid, type FROM {membership_entity} WHERE mid = :mid', array(
+    ':mid' => $pid,
+  ))->fetchObject();
+
+  // Only the parent's primary member administers its sub-members. Secondary
+  // members of the parent deliberately do not inherit this.
+  if (empty($parent) || $parent->uid != $user->uid) {
+    return FALSE;
+  }
+
+  return user_access($parent->type . ' ' . $op . ' sub-memberships', $user);
+}
+
+/**
+ * Implements hook_menu().
+ */
+function membership_entity_hierarchy_menu() {
+  // Adding a sub-member is reachable from the parent's own page, which is
+  // where the household head or association secretary is standing when they
+  // decide to do it. Without this the feature exists only on the generic add
+  // form, and is easily mistaken for the secondary member field.
+  $items['membership/%membership_entity/add-sub-member'] = array(
+    'title' => 'Add sub-member',
+    'page callback' => 'membership_entity_hierarchy_add_sub_member_page',
+    'page arguments' => array(1),
+    'access callback' => 'membership_entity_hierarchy_add_sub_member_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 3,
+    'file' => 'membership_entity_hierarchy.pages.inc',
+  );
+  $items['membership/%membership_entity/add-sub-member/%'] = array(
+    'title' => 'Add sub-member',
+    'page callback' => 'membership_entity_hierarchy_add_sub_member_page',
+    'page arguments' => array(1, 3),
+    'access callback' => 'membership_entity_hierarchy_add_sub_member_access',
+    'access arguments' => array(1),
+    'type' => MENU_CALLBACK,
+    'file' => 'membership_entity_hierarchy.pages.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function membership_entity_hierarchy_menu_alter(&$items) {
+  // The renewals tab is a Views page, and a view can only express access as a
+  // permission. What governs this one is a relationship — whether the person
+  // looking heads the membership whose sub-members are listed — so the access
+  // callback is replaced with one that can say so. The path carries a bare %
+  // rather than a loader, so the callback is handed a raw membership id.
+  if (isset($items['membership/%/renewals'])) {
+    $items['membership/%/renewals']['access callback'] = 'membership_entity_hierarchy_renewals_access';
+    $items['membership/%/renewals']['access arguments'] = array(1);
+  }
+}
+
+/**
+ * Implements hook_module_implements_alter().
+ */
+function membership_entity_hierarchy_module_implements_alter(&$implementations, $hook) {
+  // The term fields on the membership add form are put there by
+  // membership_entity_term's own form alter, and this module takes them off
+  // again where the membership above pays. Alphabetically this module would run
+  // first and find nothing to take off.
+  if ($hook == 'form_alter' && isset($implementations['membership_entity_hierarchy'])) {
+    $group = $implementations['membership_entity_hierarchy'];
+    unset($implementations['membership_entity_hierarchy']);
+    $implementations['membership_entity_hierarchy'] = $group;
+  }
+}
+
+/**
+ * Implements hook_membership_entity_bundle_settings_defaults().
+ */
+function membership_entity_hierarchy_membership_entity_bundle_settings_defaults() {
+  return array(
+    // Deliberately inert: a type gains no sub-members until an administrator
+    // raises max_children.
+    'max_children' => 0,
+    'child_terms' => 'own',
+  );
+}
+
+/**
+ * Implements hook_membership_entity_settings_alter().
+ *
+ * Adds the sub-member settings to the membership type form.
+ */
+function membership_entity_hierarchy_membership_entity_settings_alter(&$form, &$form_state, $data) {
+  $settings = array(
+    '#type' => 'fieldset',
+    '#title' => t('Sub-members'),
+    '#collapsible' => TRUE,
+    '#collapsed' => empty($data['max_children']),
+    '#description' => t('A membership of this type may hold other memberships beneath it — the members of a household, or of an affiliated association. Each sub-member keeps their own membership record, member id and page, and loses access whenever this membership is not active.'),
+  );
+
+  $settings['max_children'] = array(
+    '#type' => 'select',
+    '#title' => t('Maximum sub-members'),
+    '#options' => array(
+      '0' => t('None — this membership type cannot have sub-members'),
+      FIELD_CARDINALITY_UNLIMITED => t('Unlimited'),
+    ) + backdrop_map_assoc(range(1, 20)),
+    '#default_value' => $data['max_children'],
+    '#description' => t('Set to none for an ordinary single membership. A household might allow 5; an association, unlimited. This is separate from the number of users per membership above: users share this one membership, whereas sub-members each hold a membership of their own.'),
+  );
+
+  $settings['child_terms'] = array(
+    '#type' => 'radios',
+    '#title' => t('Who pays'),
+    '#options' => array(
+      'inherit' => t('One payment covers everyone — renewing this membership renews every sub-member with it.'),
+      'roster' => t('One payment covers everyone, but the membership supplies a list — sub-members are renewed individually from it.'),
+      'own' => t('Each sub-member renews separately — and still loses access if this membership lapses.'),
+    ),
+    '#default_value' => $data['child_terms'],
+    '#states' => array(
+      'invisible' => array(
+        ':input[name="max_children"]' => array('value' => '0'),
+      ),
+    ),
+  );
+
+  // Where it has always sat: after the secondary member settings, before the
+  // buttons.
+  _membership_entity_hierarchy_insert_before($form, 'actions', 'hierarchy_settings', $settings);
+}
+
+/**
+ * Implements hook_membership_entity_view().
+ *
+ * Shows the memberships that belong to this one, and the one it belongs to.
+ * Without this the hierarchy is invisible on the page where an administrator is
+ * most likely to look for it, and sub-members are easily confused with
+ * secondary members, who share this membership rather than holding their own.
+ */
+function membership_entity_hierarchy_membership_entity_view($membership, $view_mode, $langcode) {
+  if ($view_mode != 'full') {
+    return;
+  }
+
+  if (!empty($membership->pid) && $parent = membership_entity_load($membership->pid)) {
+    $membership->content['parent_membership'] = array(
+      '#weight' => -8,
+      'label' => array(
+        '#theme_wrappers' => array('container'),
+        '#attributes' => array('class' => array('membership-entity-label')),
+        '#markup' => t('Belongs to:&nbsp;'),
+      ),
+      'link' => array(
+        '#type' => 'link',
+        '#title' => t('@id (@name)', array(
+          '@id' => $parent->member_id,
+          '@name' => membership_entity_member_name($parent),
+        )),
+        '#href' => 'membership/' . $parent->mid,
+        '#options' => array(
+          'attributes' => array('class' => array('membership-entity-parent')),
+          'html' => FALSE,
+        ),
+      ),
+    );
+  }
+
+  if ($child_mids = membership_entity_child_mids($membership->mid)) {
+    $statuses = membership_entity_get_status_list();
+    $links = array();
+    $needing_attention = 0;
+
+    foreach (membership_entity_load_multiple($child_mids) as $child) {
+      // The status that actually governs their access, not the stored one.
+      // A sub-member reading "Active" while the membership above them has
+      // lapsed is exactly the confusion the cascade was built to resolve, and
+      // this is the page where somebody would go looking.
+      $effective = membership_entity_effective_status($child);
+      if ($effective != MEMBERSHIP_ENTITY_ACTIVE) {
+        $needing_attention++;
+      }
+
+      $links[] = array(
+        'title' => t('@id — @name (@status)', array(
+          '@id' => $child->member_id,
+          '@name' => membership_entity_member_name($child),
+          '@status' => $statuses[$effective],
+        )),
+        'href' => 'membership/' . $child->mid,
+        'attributes' => array(
+          'class' => array('membership-entity-child', 'membership-' . backdrop_html_class($statuses[$effective])),
+        ),
+      );
+    }
+
+    $membership->content['child_memberships'] = array(
+      '#weight' => -6,
+      'label' => array(
+        '#theme_wrappers' => array('container'),
+        '#attributes' => array('class' => array('membership-entity-label')),
+        '#markup' => $needing_attention
+          ? format_plural($needing_attention,
+            t('Sub-members (@count not currently active):', array('@count' => $needing_attention)),
+            t('Sub-members (@count not currently active):', array('@count' => $needing_attention))) . '&nbsp;'
+          : format_plural(count($links), 'Sub-member:', 'Sub-members:') . '&nbsp;',
+      ),
+      'links' => array(
+        '#theme' => 'links',
+        '#links' => $links,
+        '#attributes' => array('class' => array('membership-entity-child-memberships')),
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_membership_entity_may_create_member_account_alter().
+ *
+ * An association secretary may create the account of a member they are adding,
+ * even though they cannot "administer users". Adding somebody who has no
+ * account is the whole point of the feature.
+ */
+function membership_entity_hierarchy_membership_entity_may_create_member_account_alter(&$may, $membership) {
+  if (!$may && !empty($membership->pid)
+    && membership_entity_hierarchy_manages_sub_membership('create', $membership->pid)) {
+    $may = TRUE;
+  }
+}
+
+/**
+ * Implements hook_membership_entity_form_alter().
+ *
+ * The "Belongs to" selector on the membership form.
+ */
+function membership_entity_hierarchy_membership_entity_form_alter(&$form, &$form_state, $membership) {
+  // A membership that has sub-members of its own cannot also sit beneath
+  // another — memberships are limited to two levels.
+  $has_children = !empty($membership->mid) && membership_entity_child_count($membership->mid);
+
+  // Arrived from the "Add sub-member" action on a parent's page: the parent is
+  // decided by where the administrator was standing, so it is shown rather
+  // than offered. Only a new membership can be pre-filled this way; editing an
+  // existing one always goes through the selector below.
+  if (empty($membership->mid) && !empty($membership->pid)) {
+    $form['membership']['pid'] = array(
+      '#type' => 'value',
+      '#value' => $membership->pid,
+    );
+    $form['membership']['pid_display'] = array(
+      '#type' => 'item',
+      '#title' => t('Belongs to'),
+      '#markup' => check_plain(membership_entity_parent_label($membership->pid)),
+      '#description' => t('This member is being added to that membership. To attach them elsewhere, save this membership and then edit it.'),
+    );
+  }
+  elseif (!$has_children && user_access('administer memberships')) {
+    if ($parents = membership_entity_hierarchy_eligible_parents($membership)) {
+      $form['membership']['pid'] = array(
+        '#type' => 'select',
+        '#title' => t('Belongs to'),
+        '#options' => array(0 => t('- None -')) + $parents,
+        '#default_value' => !empty($membership->pid) ? $membership->pid : 0,
+        '#description' => t('The household or association this membership belongs to. While that membership is not active this member has no access, whatever their own status says. Changing it moves the member; setting it to none uncouples them onto their own membership.'),
+      );
+    }
+  }
+  elseif (!$has_children) {
+    // A household head or association secretary may only ever attach to their
+    // own membership. They can let a member go, but moving somebody into a
+    // different association is an administrator's decision — otherwise one
+    // secretary could push members onto another's list.
+    $sub_op = empty($membership->mid) ? 'create' : 'edit';
+    $own = membership_entity_hierarchy_managed_parents($sub_op);
+
+    if (!empty($membership->pid) && membership_entity_hierarchy_manages_sub_membership('detach', $membership)) {
+      $current = membership_entity_hierarchy_managed_parents('edit');
+      $options = array(0 => t('- Remove from this membership -'));
+      if (isset($current[$membership->pid])) {
+        $options[$membership->pid] = $current[$membership->pid];
+      }
+
+      $form['membership']['pid'] = array(
+        '#type' => 'select',
+        '#title' => t('Belongs to'),
+        '#options' => $options,
+        '#default_value' => $membership->pid,
+        '#description' => t('Removing this member leaves their own membership and user account untouched — they simply no longer belong to yours. Moving them to a different membership is done by a site administrator.'),
+      );
+    }
+    elseif ($sub_op == 'create' && count($own) == 1) {
+      // Nothing to choose, so do not offer a choice: fix it to the one
+      // membership they administer.
+      $form['membership']['pid'] = array(
+        '#type' => 'value',
+        '#value' => key($own),
+      );
+      $form['membership']['pid_display'] = array(
+        '#type' => 'item',
+        '#title' => t('Belongs to'),
+        '#markup' => check_plain(reset($own)),
+      );
+    }
+    elseif ($sub_op == 'create' && count($own) > 1) {
+      $form['membership']['pid'] = array(
+        '#type' => 'select',
+        '#title' => t('Belongs to'),
+        '#options' => $own,
+        '#default_value' => !empty($membership->pid) ? $membership->pid : key($own),
+        '#required' => TRUE,
+      );
+    }
+  }
+
+  // Where it has always sat: after the members, before the status.
+  foreach (array('pid_display', 'pid') as $key) {
+    if (isset($form['membership'][$key])) {
+      $element = $form['membership'][$key];
+      unset($form['membership'][$key]);
+      _membership_entity_hierarchy_insert_before($form['membership'], 'status', $key, $element);
+    }
+  }
+
+  $form['#validate'][] = 'membership_entity_hierarchy_form_validate';
+
+  // Reached from this module's add-sub-member page as well as from the core
+  // routes, so the form's own include has to be recorded for a cached or AJAX
+  // rebuild: the menu item's file is then this module's, not core's.
+  form_load_include($form_state, 'inc', 'membership_entity', 'membership_entity.pages');
+}
+
+/**
+ * Validate the "Belongs to" selector on the membership form.
+ *
+ * @see membership_entity_hierarchy_membership_entity_form_alter()
+ */
+function membership_entity_hierarchy_form_validate($form, &$form_state) {
+  $values = &$form_state['values'];
+  $membership = $form['#membership_entity'];
+
+  // Anyone without full membership administration may only attach to their own
+  // membership. Enforced here as well as in the form: the select can be posted
+  // around, so restricting the options is presentation, not security.
+  if (isset($values['pid']) && !user_access('administer memberships')) {
+    $submitted = (int) $values['pid'];
+
+    // A membership that has not been saved yet has no original parent, however
+    // the form was seeded — the "Add sub-member" action pre-fills pid, and that
+    // must still be checked rather than waved through as "unchanged".
+    $original = (!empty($membership->mid) && !empty($membership->pid)) ? (int) $membership->pid : 0;
+
+    if ($submitted !== $original) {
+      if ($submitted === 0) {
+        // Letting a member go.
+        if (!membership_entity_hierarchy_manages_sub_membership('detach', $membership)) {
+          form_set_error('pid', t('You do not have permission to remove this member.'));
+        }
+      }
+      else {
+        // Attaching, whether new or moved. Moving between parents is barred
+        // outright — a member who has left one membership is re-attached by an
+        // administrator, so that nobody can push members onto another list.
+        $op = empty($membership->mid) ? 'create' : 'edit';
+        $allowed = membership_entity_hierarchy_managed_parents($op);
+
+        if ($original !== 0) {
+          form_set_error('pid', t('You cannot move this member to a different membership. Remove them, and a site administrator can attach them elsewhere.'));
+        }
+        elseif (!isset($allowed[$submitted])) {
+          form_set_error('pid', t('You do not have permission to attach a member to that membership.'));
+        }
+      }
+    }
+  }
+
+  // Validate the parent membership. The select only offers eligible parents,
+  // but a membership may have gained sub-members or filled up since the form
+  // was built, and the value can be posted directly.
+  if (isset($values['pid']) && !empty($values['pid'])) {
+    if (!empty($membership->mid) && $values['pid'] == $membership->mid) {
+      form_set_error('pid', t('A membership cannot belong to itself.'));
+    }
+    elseif (!empty($membership->mid) && membership_entity_child_count($membership->mid)) {
+      form_set_error('pid', t('This membership has sub-members of its own, so it cannot also belong to another membership.'));
+    }
+    elseif ($parent = membership_entity_load($values['pid'])) {
+      $parent_settings = membership_entity_get_bundle_settings($parent->type);
+      $max = $parent_settings['max_children'];
+
+      if (!empty($parent->pid)) {
+        form_set_error('pid', t('%id already belongs to another membership, so it cannot take sub-members itself.', array(
+          '%id' => $parent->member_id,
+        )));
+      }
+      elseif (empty($max)) {
+        form_set_error('pid', t('%id is of a type that does not allow sub-members.', array(
+          '%id' => $parent->member_id,
+        )));
+      }
+      elseif ($max != FIELD_CARDINALITY_UNLIMITED && $values['pid'] != $membership->pid
+        && membership_entity_child_count($parent->mid) >= $max) {
+        form_set_error('pid', t('%id already has its maximum of @max sub-members.', array(
+          '%id' => $parent->member_id,
+          '@max' => $max,
+        )));
+      }
+      // Moving a member who renews separately under a parent that pays for
+      // everyone leaves their own terms in place, where they can still expire
+      // the member even though the parent is paid up. Worth saying, not worth
+      // destroying term history over.
+      elseif ($parent_settings['child_terms'] == 'inherit' && !empty($membership->terms)) {
+        backdrop_set_message(t('%id pays for all of its sub-members, but this membership has terms of its own. Those terms still apply and can expire this member. Review them if that is not what you want.', array(
+          '%id' => $parent->member_id,
+        )), 'warning');
+      }
+    }
+    else {
+      form_set_error('pid', t('The selected parent membership no longer exists.'));
+    }
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * Runs after membership_entity_term's own alter - see
+ * membership_entity_hierarchy_module_implements_alter().
+ */
+function membership_entity_hierarchy_form_alter(&$form, &$form_state, $form_id) {
+  if (!in_array($form_id, array('membership_entity_edit_form', 'membership_entity_join_form'))
+    || !isset($form['actions']['submit']['#submit'])) {
+    return;
+  }
+
+  $submit = &$form['actions']['submit']['#submit'];
+  $position = array_search('membership_entity_term_create_form_submit', $submit, TRUE);
+  if ($position === FALSE) {
+    return;
+  }
+
+  // The term handler is wrapped, so that a sub-member whose parent pays is
+  // given the parent's term instead of the one entered.
+  $submit[$position] = 'membership_entity_hierarchy_term_create_form_submit';
+
+  // Where the parent is already fixed — which is the whole of the "add
+  // sub-member" route — and that parent pays for its sub-members, every term
+  // control on this form is decoration: the submit handler discards whatever is
+  // entered and copies the parent's term down instead. Say what the term will
+  // be rather than asking for one that cannot be honoured.
+  //
+  // The generic add form is deliberately left alone. There the parent is
+  // chosen from a select of memberships whose types may differ in this
+  // setting, so whether the term is inherited is not known until the form
+  // comes back.
+  $membership = $form['#membership_entity'];
+  if (!empty($membership->pid) && membership_entity_hierarchy_child_inherits_terms($membership)) {
+    unset($form['membership_term'], $form['#membership_entity_term_form']);
+    if (isset($form['#validate'])) {
+      $form['#validate'] = array_values(array_diff($form['#validate'], array('membership_entity_term_form_validate')));
+    }
+    _membership_entity_hierarchy_inherited_notice($form, $membership);
+  }
+}
+
+/**
+ * Submit handler for a new membership's first term.
+ *
+ * Wraps membership_entity_term_create_form_submit(). Where the chosen parent
+ * pays for all of its sub-members, the term is not the one entered on this
+ * form: it is the parent's, copied down so that the two run to the same date.
+ * The parent is only known once the form has been submitted, which is why any
+ * term length entered is discarded here rather than hidden earlier.
+ *
+ * The sub-member does get a term of their own, rather than none at all. It is
+ * what gives them a joining date, a renewal history, and a lapse that can be
+ * seen and explained — a membership with no terms sits at active for ever and
+ * leaves no record of any of it.
+ */
+function membership_entity_hierarchy_term_create_form_submit($form, &$form_state) {
+  $membership = &$form_state['membership_entity'];
+
+  if (!membership_entity_hierarchy_child_inherits_terms($membership)) {
+    module_load_include('inc', 'membership_entity_term', 'membership_entity_term.pages');
+    membership_entity_term_create_form_submit($form, $form_state);
+    return;
+  }
+
+  if ($copied = membership_entity_hierarchy_copy_term_from_parent($membership, $membership->pid)) {
+    $membership->terms[$copied->id] = $copied;
+    $form_state['membership_entity_term'] = $copied;
+    backdrop_set_message(t('This membership is paid for by the membership it belongs to, and has been given a term running to the same date, @date.', array(
+      '@date' => format_date(strtotime($copied->end), 'custom', 'j F Y'),
+    )));
+  }
+  else {
+    backdrop_set_message(t('This membership is paid for by the membership it belongs to, but that membership has no current term, so no term could be given. It will be covered from the next time the membership above it is renewed.'), 'warning');
+  }
+}
+
+/**
+ * State the term a sub-member will be given, in place of asking for one.
+ *
+ * Shown where the membership above pays for everyone beneath it. The date comes
+ * from the same lookup the submit handler uses, so what is promised here is
+ * what is written.
+ *
+ * @param array $form
+ *   The membership form, altered in place.
+ * @param MembershipEntity $membership
+ *   The sub-member being created, whose parent is already fixed.
+ */
+function _membership_entity_hierarchy_inherited_notice(&$form, MembershipEntity $membership) {
+  $parent_term = membership_entity_term_get_current($membership->pid);
+  $parent = membership_entity_parent_label($membership->pid);
+
+  if ($parent_term) {
+    $message = t('This membership is paid for by @parent, so it takes that membership’s term and will run to @date. It is renewed whenever @parent is.', array(
+      '@parent' => $parent,
+      '@date' => format_date(strtotime($parent_term->end), 'custom', 'j F Y'),
+    ));
+    $type = 'status';
+  }
+  else {
+    // Worth saying before the form is submitted rather than after: the person
+    // filling it in may want to renew the membership above first.
+    $message = t('This membership is paid for by @parent, but @parent has no current term, so this member will start with none. They will be covered from the next time @parent is renewed.', array(
+      '@parent' => $parent,
+    ));
+    $type = 'warning';
+  }
+
+  $form['membership_term_inherited'] = array(
+    '#type' => 'item',
+    '#title' => t('Term'),
+    '#markup' => '<div class="messages ' . $type . '">' . $message . '</div>',
+    '#weight' => 20,
+  );
+}
+
+/**
+ * Implements hook_membership_entity_term_insert().
+ */
+function membership_entity_hierarchy_membership_entity_term_insert($term) {
+  _membership_entity_hierarchy_propagate_terms($term);
+}
+
+/**
+ * Implements hook_membership_entity_term_update().
+ */
+function membership_entity_hierarchy_membership_entity_term_update($term) {
+  _membership_entity_hierarchy_propagate_terms($term);
+}
+
+/**
+ * Implements hook_membership_entity_term_delete().
+ */
+function membership_entity_hierarchy_membership_entity_term_delete($term) {
+  _membership_entity_hierarchy_propagate_terms($term);
+}
+
+/**
+ * Implements hook_membership_entity_term_renewable_alter().
+ *
+ * Nothing to renew where the parent membership pays for everyone beneath it —
+ * the parent is renewed instead.
+ */
+function membership_entity_hierarchy_membership_entity_term_renewable_alter(&$renewable, $membership) {
+  if (membership_entity_hierarchy_child_inherits_terms($membership)) {
+    $renewable = FALSE;
+  }
+}
+
+/**
+ * Whether a membership can still take another sub-member, and by whom.
+ *
+ * Access callback for the "Add sub-member" action on a membership page. The
+ * three structural tests are the same ones the parent selector applies: two
+ * levels only, a type that allows sub-members, and room left under its
+ * max_children.
+ *
+ * @param MembershipEntity $membership
+ *   The prospective parent membership.
+ *
+ * @return bool
+ *   TRUE if the current user may add a sub-member to this membership.
+ */
+function membership_entity_hierarchy_add_sub_member_access(MembershipEntity $membership) {
+  // A membership that already belongs to another cannot take sub-members of
+  // its own — memberships are limited to two levels.
+  if (empty($membership->mid) || !empty($membership->pid)) {
+    return FALSE;
+  }
+
+  $settings = membership_entity_get_bundle_settings($membership->type);
+  if (empty($settings['max_children'])) {
+    return FALSE;
+  }
+
+  if ($settings['max_children'] != FIELD_CARDINALITY_UNLIMITED
+    && membership_entity_child_count($membership->mid) >= $settings['max_children']) {
+    return FALSE;
+  }
+
+  return user_access('administer memberships')
+    || membership_entity_hierarchy_manages_sub_membership('create', $membership->mid);
+}
+
+/**
+ * Whether a membership's term is paid for by its parent.
+ *
+ * Where a parent covers everyone beneath it — a household, or an association
+ * that pays as a body — its sub-members do not buy their own cover and are
+ * given a term matching the parent's instead. Sub-members of a parent set to
+ * 'own' renew separately and are merely gated by it.
+ *
+ * True for both 'inherit' and 'roster', because the question this answers is
+ * who pays, not how the renewal reaches the sub-member. The two settings differ
+ * only at renewal time: 'inherit' carries everybody forward automatically,
+ * 'roster' waits to be told who is on this year's list. Neither sub-member
+ * renews itself, so neither is offered a renew tab.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to test.
+ *
+ * @return bool
+ *   TRUE if the membership's parent covers its term.
+ */
+function membership_entity_hierarchy_child_inherits_terms(MembershipEntity $membership) {
+  if (empty($membership->pid)) {
+    return FALSE;
+  }
+
+  $settings = membership_entity_hierarchy_parent_settings($membership->pid);
+  return $settings && in_array($settings['child_terms'], array('inherit', 'roster'));
+}
+
+/**
+ * Whether a parent renews its sub-members from a supplied list.
+ *
+ * An association large enough to collect its own subscriptions sends across who
+ * has actually paid, and that list never matches the membership in full: people
+ * drop out every year without ever saying so. Renewing everybody beneath the
+ * parent automatically would extend cover to those people too, and nobody would
+ * ever notice, because the money has already been taken and the renewal
+ * reported success.
+ *
+ * @param MembershipEntity $membership
+ *   The parent membership to test.
+ *
+ * @return bool
+ *   TRUE if sub-members are renewed one at a time rather than as a body.
+ */
+function membership_entity_hierarchy_renews_from_roster(MembershipEntity $membership) {
+  $settings = membership_entity_get_bundle_settings($membership->type);
+  return $settings['child_terms'] == 'roster';
+}
+
+/**
+ * The bundle settings of the membership a sub-member belongs to.
+ *
+ * Loads the parent's type alone rather than the whole membership: this is
+ * called from access checks that run on every sub-member row of a listing, and
+ * the settings are the only part wanted.
+ *
+ * @param int $pid
+ *   The parent membership id.
+ *
+ * @return array|false
+ *   The parent type's bundle settings, or FALSE if the parent has gone.
+ */
+function membership_entity_hierarchy_parent_settings($pid) {
+  $parent_type = db_query('SELECT type FROM {membership_entity} WHERE mid = :mid', array(
+    ':mid' => $pid,
+  ))->fetchField();
+  if ($parent_type === FALSE) {
+    return FALSE;
+  }
+
+  return membership_entity_get_bundle_settings($parent_type);
+}
+
+/**
+ * List the memberships a user may attach sub-members to.
+ *
+ * A household head or association secretary can only ever attach to their own
+ * membership, so this is normally one entry. Returned in the same shape as
+ * membership_entity_hierarchy_eligible_parents() so the two can be used
+ * interchangeably.
+ *
+ * @param string $op
+ *   'create' when adding a new sub-member, 'edit' when changing an existing
+ *   one.
+ * @param object $account
+ *   The account to check. Defaults to the logged in user.
+ *
+ * @return array
+ *   Membership labels keyed by mid.
+ */
+function membership_entity_hierarchy_managed_parents($op, $account = NULL) {
+  $user = isset($account) ? $account : $GLOBALS['user'];
+  $options = array();
+  if (empty($user->uid)) {
+    return $options;
+  }
+
+  $query = db_select('membership_entity', 'me')
+    ->fields('me', array('mid', 'member_id', 'type'))
+    ->condition('me.uid', $user->uid)
+    ->condition('me.pid', 0);
+  $query->leftJoin('users', 'u', 'u.uid = me.uid');
+  $query->addField('u', 'name', 'username');
+
+  foreach ($query->execute() as $row) {
+    $settings = membership_entity_get_bundle_settings($row->type);
+    if (empty($settings['max_children'])) {
+      continue;
+    }
+    if (!user_access($row->type . ' ' . $op . ' sub-memberships', $user)) {
+      continue;
+    }
+
+    // A parent that is already full takes no more.
+    if ($op == 'create' && $settings['max_children'] != FIELD_CARDINALITY_UNLIMITED
+      && membership_entity_child_count($row->mid) >= $settings['max_children']) {
+      continue;
+    }
+
+    $options[$row->mid] = !empty($row->username)
+      ? t('@name (@id)', array('@name' => $row->username, '@id' => $row->member_id))
+      : $row->member_id;
+  }
+
+  return $options;
+}
+
+/**
+ * List the memberships that may act as a parent for a given membership.
+ *
+ * A membership qualifies when its type allows sub-members, it is not the
+ * membership being edited, it does not itself have a parent (memberships are
+ * limited to two levels), and it has not already reached its type's
+ * max_children — unless it is the current parent, which must stay selectable so
+ * that editing an unrelated field does not silently move the member.
+ *
+ * @param MembershipEntity $membership
+ *   The membership being edited.
+ *
+ * @return array
+ *   Membership labels keyed by mid, suitable for a select element.
+ */
+function membership_entity_hierarchy_eligible_parents(MembershipEntity $membership) {
+  $options = array();
+
+  // Only types that allow sub-members are worth querying for.
+  $types = array();
+  foreach (membership_entity_get_bundles() as $bundle => $label) {
+    $settings = membership_entity_get_bundle_settings($bundle);
+    if (!empty($settings['max_children'])) {
+      $types[$bundle] = $settings['max_children'];
+    }
+  }
+  if (empty($types)) {
+    return $options;
+  }
+
+  // Join the primary member so the list can be read by a human. A membership
+  // labels itself by member_id, which identifies nothing to the person choosing
+  // — "00001" could be any household on the site.
+  $query = db_select('membership_entity', 'me')
+    ->fields('me', array('mid', 'member_id', 'type'))
+    ->condition('me.type', array_keys($types), 'IN')
+    ->condition('me.pid', 0);
+  $query->leftJoin('users', 'u', 'u.uid = me.uid');
+  $query->addField('u', 'name', 'username');
+  $query->orderBy('u.name');
+  $query->orderBy('me.member_id');
+  if (!empty($membership->mid)) {
+    $query->condition('me.mid', $membership->mid, '<>');
+  }
+
+  foreach ($query->execute() as $row) {
+    $max = $types[$row->type];
+    $full = ($max != FIELD_CARDINALITY_UNLIMITED)
+      && (membership_entity_child_count($row->mid) >= $max);
+
+    // A full parent is still offered if the member is already in it.
+    if ($full && $row->mid != $membership->pid) {
+      continue;
+    }
+
+    // Name first, since that is what is being recognised; the member id stays
+    // for the case of two members with the same name.
+    $options[$row->mid] = !empty($row->username)
+      ? t('@name (@id)', array('@name' => $row->username, '@id' => $row->member_id))
+      : $row->member_id;
+  }
+
+  return $options;
+}
+
+/**
+ * Whether the renewals tab should appear on a membership, and for whom.
+ *
+ * Absent rather than present-and-refused wherever it would mean nothing: on a
+ * membership that cannot have sub-members, and on one whose type renews its
+ * sub-members automatically, where there is no list to mark off and the tab
+ * would invite somebody to do work that has already been done for them.
+ *
+ * @param int $mid
+ *   The membership id from the path.
+ *
+ * @return bool
+ *   TRUE if the tab should be shown.
+ */
+function membership_entity_hierarchy_renewals_access($mid) {
+  if (!$membership = membership_entity_load($mid)) {
+    return FALSE;
+  }
+
+  // Two levels only, so a sub-member never has sub-members of its own.
+  if (!empty($membership->pid) || !membership_entity_hierarchy_renews_from_roster($membership)) {
+    return FALSE;
+  }
+
+  if (user_access('administer membership terms') || user_access('administer memberships')) {
+    return TRUE;
+  }
+
+  // The association secretary reaching their own roster. The permission is
+  // keyed on this membership's own type, because the capability comes from
+  // heading it — which is the same rule the sub-member permissions already
+  // follow, seen from the other end.
+  return $membership->uid == $GLOBALS['user']->uid
+    && user_access($membership->type . ' edit sub-memberships');
+}
+
+/**
+ * Bring a paying parent's sub-members onto its newly renewed term.
+ *
+ * Where a membership type says one payment covers everyone, the sub-members
+ * still hold terms of their own — that is what gives each of them a joining
+ * date, a renewal history and a lapse that can be seen and annotated. They do
+ * not renew themselves, so renewing the parent is what moves them on.
+ *
+ * This is the 'inherit' route, where sub-members are brought forward as a body.
+ * Leaving somebody out of one of these renewals is done by detaching them,
+ * which is already a first-class act with its own permission, rather than by
+ * quietly declining to extend their term — a membership that silently stopped
+ * being renewed would be indistinguishable from one nobody had got round to
+ * yet. Where the parent is instead set to 'roster', it is expected that some of
+ * its sub-members will not be renewed, and they are marked off one at a time
+ * from the parent's renewals tab.
+ *
+ * @see membership_entity_term_renew_sub_member_action()
+ *
+ * @param object $term
+ *   The term just saved against the parent membership.
+ */
+function _membership_entity_hierarchy_propagate_terms($term) {
+  $child_mids = membership_entity_child_mids($term->mid);
+  if (empty($child_mids)) {
+    return;
+  }
+
+  $parent = membership_entity_load($term->mid);
+  $settings = membership_entity_get_bundle_settings($parent->type);
+  if ($settings['child_terms'] != 'inherit') {
+    // 'own': each sub-member pays for and renews their own membership, so the
+    // parent's term is none of their business.
+    //
+    // 'roster': the parent pays, but only for the people on the list it sends
+    // across at renewal. Carrying everybody forward here would cover the ones
+    // who quietly dropped out as well, and would do it invisibly — the renewal
+    // has succeeded and nobody has any reason to go looking. Those sub-members
+    // are renewed one at a time instead, from the parent's renewals tab.
+    return;
+  }
+
+  // Only a term that grants cover is copied down. An expiring one is not: a
+  // sub-member losing access when the membership above them lapses is the
+  // cascade's job, computed from the parent's status, and writing it into their
+  // own term would destroy the record of what they held in their own right.
+  if ((int) $term->status !== MEMBERSHIP_ENTITY_ACTIVE) {
+    return;
+  }
+
+  $skipped = array();
+
+  foreach (membership_entity_load_multiple($child_mids) as $child) {
+    // Somebody the organisation has decided is no longer with them — resigned,
+    // died, been removed — is not carried forward. Cancelled is the status that
+    // already means "ended deliberately", so it is the one that excludes.
+    //
+    // Expired deliberately does NOT exclude. When a membership is renewed after
+    // its date has passed, every sub-member beneath it has expired along with
+    // it, and skipping them would mean a late renewal quietly renewed nobody.
+    // Letting somebody go is a decision that has to be recorded as one.
+    if (in_array((int) $child->status, array(MEMBERSHIP_ENTITY_CANCELLED, MEMBERSHIP_ENTITY_PENDING))) {
+      $skipped[$child->mid] = $child;
+      continue;
+    }
+
+    // A sub-member already covered to this date or beyond needs nothing.
+    // Comparing cover rather than counting terms is what makes this safe to run
+    // on every save: a member who joined mid-year is not renewed twice, an
+    // unchanged term re-saved adds nothing, editing a superseded term does not
+    // drag anybody backwards, and a member who lapsed is picked back up.
+    if (membership_entity_hierarchy_covers_to($child, $term->end)) {
+      continue;
+    }
+
+    membership_entity_hierarchy_copy_term_from_parent($child, $parent->mid, $term);
+  }
+
+  _membership_entity_hierarchy_report_skipped($parent, $skipped);
+}
+
+/**
+ * Say who was left out of a renewal, so they can be chased or closed off.
+ *
+ * A renewal that silently covered fewer people than the organisation expected
+ * is the failure worth guarding against here: the money has been taken, and
+ * whoever took it has no reason to look. Naming them at the moment of renewal
+ * is the one time somebody is certain to be looking.
+ *
+ * @param MembershipEntity $parent
+ *   The membership that was renewed.
+ * @param array $skipped
+ *   Sub-memberships not carried forward, keyed by mid.
+ */
+function _membership_entity_hierarchy_report_skipped(MembershipEntity $parent, array $skipped) {
+  if (empty($skipped)) {
+    return;
+  }
+
+  $statuses = membership_entity_get_status_list();
+  $items = array();
+  foreach ($skipped as $child) {
+    $items[] = t('@id — @name (@status)', array(
+      '@id' => $child->member_id,
+      '@name' => membership_entity_member_name($child),
+      '@status' => $statuses[(int) $child->status],
+    ));
+  }
+
+  backdrop_set_message(format_plural(count($skipped),
+    'One sub-member of @parent was not renewed, because their membership has been ended rather than allowed to lapse:',
+    '@count sub-members of @parent were not renewed, because their memberships have been ended rather than allowed to lapse:',
+    array('@parent' => $parent->member_id)) . theme('item_list', array('items' => $items)), 'warning');
+}
+
+/**
+ * Whether a membership is already covered to at least a given date.
+ *
+ * Note membership_entity_term_get_current() cannot answer this on its own: it
+ * takes the first row whose span contains today, and renewing early leaves two
+ * overlapping terms current at once, so which one comes back is arbitrary. The
+ * furthest end date across the membership's active terms is the honest measure
+ * of how far its cover reaches.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to measure.
+ * @param string|null $end
+ *   The end date to compare against, or NULL for a lifetime term, which no
+ *   fixed date can match.
+ *
+ * @return bool
+ *   TRUE if the membership is already covered that far.
+ */
+function membership_entity_hierarchy_covers_to(MembershipEntity $membership, $end) {
+  // Nothing outlasts a lifetime term, so only another one will do.
+  $furthest = db_query('SELECT MAX(end) FROM {membership_entity_term} WHERE mid = :mid AND status = :status', array(
+    ':mid' => $membership->mid,
+    ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+  ))->fetchField();
+
+  $lifetime = (bool) db_query_range('SELECT 1 FROM {membership_entity_term} WHERE mid = :mid AND status = :status AND term = :term', 0, 1, array(
+    ':mid' => $membership->mid,
+    ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ':term' => 'lifetime',
+  ))->fetchField();
+
+  if ($lifetime) {
+    return TRUE;
+  }
+  if (empty($end)) {
+    return FALSE;
+  }
+
+  return !empty($furthest) && strtotime($furthest) >= strtotime($end);
+}
+
+/**
+ * Implements hook_membership_entity_uncoupled().
+ *
+ * A membership whose parent paid for it holds no term of its own, and its
+ * status sits permanently at active — harmless while the parent governs it, but
+ * a membership that never expires once the parent is removed. Give it the
+ * parent's current term so that it carries on from where the parent left off
+ * and renews on its own thereafter.
+ *
+ * @param MembershipEntity $membership
+ *   The membership that has just been detached from its parent.
+ * @param int $old_pid
+ *   The membership id of the parent it was detached from.
+ */
+function membership_entity_hierarchy_membership_entity_uncoupled($membership, $old_pid) {
+  // Only a membership with no term of its own needs one. Anything else was
+  // already renewing separately.
+  $terms = membership_entity_term_load_by_membership($membership, TRUE);
+  if (!empty($terms)) {
+    return;
+  }
+
+  if (!membership_entity_hierarchy_copy_term_from_parent($membership, $old_pid)) {
+    return;
+  }
+
+  backdrop_set_message(t('Membership %member_id has been given its own term, ending on the same date as the membership it has left. It renews separately from now on.', array(
+    '%member_id' => $membership->member_id,
+  )));
+}
+
+/**
+ * Give a membership a term matching its parent's current one.
+ *
+ * The start and the length are copied, never the end date: MembershipEntityTerm
+ * recalculates end from start plus term on every save, so an assigned end is
+ * silently discarded. Same start and same length reproduces the same end.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to give a term to. It must already be saved.
+ * @param int $parent_mid
+ *   The membership id to copy the term from.
+ * @param object $parent_term
+ *   The specific term to copy. Defaults to the parent's current term, which is
+ *   what the joining and uncoupling paths want; the renewal path passes the
+ *   term it has just saved, because two overlapping terms can both be current
+ *   and picking between them by date is guesswork.
+ *
+ * @return MembershipEntityTerm|false
+ *   The term created, or FALSE where the parent has no current term to copy.
+ */
+function membership_entity_hierarchy_copy_term_from_parent(MembershipEntity $membership, $parent_mid, $parent_term = NULL) {
+  if (empty($parent_term)) {
+    $parent_term = membership_entity_term_get_current($parent_mid);
+  }
+  if (empty($parent_term)) {
+    return FALSE;
+  }
+
+  $term = membership_entity_term_create(array(
+    'mid' => $membership->mid,
+    'membership_entity_type' => $membership->type,
+    'term' => $parent_term->term,
+    'start' => $parent_term->start,
+    'status' => $parent_term->status,
+  ));
+  membership_entity_term_save($term);
+
+  return $term;
+}
+
+/**
+ * Implements hook_action_info().
+ */
+function membership_entity_hierarchy_action_info() {
+  return array(
+    'membership_entity_term_renew_sub_member_action' => array(
+      'type' => 'membership_entity',
+      'label' => t('Mark as renewed'),
+      'configurable' => FALSE,
+    ),
+  );
+}
+
+/**
+ * Actions callback: renew a sub-member onto the term its parent is paying for.
+ *
+ * The act this exists for is an association handing over the list of who has
+ * paid it this year. The list is never the whole membership, so the renewal
+ * cannot be applied to everybody as a body; it is applied one member at a time,
+ * to exactly the people named. Whoever is not named is left entirely alone —
+ * their existing term runs out on its own date and expiry takes its ordinary
+ * course. That is the difference between somebody who has lapsed and somebody
+ * who has resigned, and it is worth keeping, because a lapsed member very often
+ * comes back and should come back to the same record.
+ *
+ * No new term arithmetic lives here. The term is the parent's, copied down by
+ * the same function the automatic cascade uses, so the two routes cannot drift
+ * apart and a member renewed by hand is indistinguishable from one renewed as
+ * part of a group.
+ *
+ * Safe to run more than once, and safe to run over a selection that includes
+ * people already dealt with: a sub-member already covered to the parent's end
+ * date is left untouched rather than given a second term. That matters because
+ * a roster of any size gets worked through in sittings, with the same rows
+ * inevitably selected twice.
+ *
+ * @param MembershipEntity $membership
+ *   The sub-member being marked as renewed.
+ * @param array $context
+ *   Action context. Unused.
+ */
+function membership_entity_term_renew_sub_member_action($membership, $context = array()) {
+  // Bulk operations hand rows over as whatever the view produced, which is not
+  // always a MembershipEntity, and every helper below is type hinted.
+  if (!($membership instanceof MembershipEntity)) {
+    $membership = membership_entity_create_from_stdclass($membership);
+  }
+
+  // The action is only meaningful where somebody above is paying. A membership
+  // that renews separately has its own term to buy and its own renewal form to
+  // buy it on; handing it the parent's term would give away cover nobody has
+  // paid for.
+  if (empty($membership->pid) || !membership_entity_hierarchy_child_inherits_terms($membership)) {
+    _membership_entity_hierarchy_renew_action_warn('not_covered', $membership->pid, t('%id is not paid for by a membership above it, so it cannot be renewed this way. It renews on its own membership page.', array(
+      '%id' => $membership->member_id,
+    )));
+    return;
+  }
+
+  if (!membership_entity_hierarchy_renew_sub_member_access($membership)) {
+    _membership_entity_hierarchy_renew_action_warn('denied', $membership->pid, t('You do not have permission to renew sub-members of that membership.'));
+    return;
+  }
+
+  // Renewing the parent is what buys the cover, so it has to have happened
+  // first. Saying so is the whole point of the check — copy_from_parent simply
+  // returns FALSE, which on a bulk run would look like nothing at all.
+  $parent_term = membership_entity_hierarchy_furthest_term($membership->pid);
+  if (empty($parent_term)) {
+    _membership_entity_hierarchy_renew_action_warn('no_parent_term', $membership->pid, t('The membership above these sub-members has no current term, so there is nothing to renew them onto. Renew it first, then mark its sub-members as renewed.'));
+    return;
+  }
+
+  if (membership_entity_hierarchy_covers_to($membership, $parent_term->end)) {
+    return;
+  }
+
+  membership_entity_hierarchy_copy_term_from_parent($membership, $membership->pid, $parent_term);
+}
+
+/**
+ * The active term carrying a membership's cover furthest forward.
+ *
+ * Deliberately not membership_entity_term_get_current(), which asks a different
+ * question — what covers the membership *today*. An association that renews
+ * before its date runs out holds two active terms at once, and the current one
+ * is then the OLD one: copying that down would hand every sub-member the cover
+ * they already had and report a successful renewal for doing nothing. The
+ * automatic cascade never meets this because it is handed the term that was
+ * just saved; anything working from the parent afterwards has to go looking.
+ *
+ * @param int $mid
+ *   The membership id.
+ *
+ * @return object|false
+ *   The active term reaching furthest into the future, or FALSE if there is
+ *   none. A lifetime term wins outright — nothing outlasts it, and it carries
+ *   no end date to compare.
+ */
+function membership_entity_hierarchy_furthest_term($mid) {
+  $id = db_query_range('SELECT id FROM {membership_entity_term} WHERE mid = :mid AND status = :status AND term = :term', 0, 1, array(
+    ':mid' => $mid,
+    ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ':term' => 'lifetime',
+  ))->fetchField();
+
+  if (!$id) {
+    $id = db_query_range('SELECT id FROM {membership_entity_term} WHERE mid = :mid AND status = :status AND end IS NOT NULL ORDER BY end DESC', 0, 1, array(
+      ':mid' => $mid,
+      ':status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ))->fetchField();
+  }
+
+  return $id ? membership_entity_term_load($id) : FALSE;
+}
+
+/**
+ * Whether the current user may renew a given sub-member.
+ *
+ * Repeats the check rather than leaning on the view's own access, because a
+ * bulk operations form is configured separately from the permissions and the
+ * two drift. An association secretary reaches this through the roster tab on
+ * their own membership; a site administrator reaches it from anywhere.
+ *
+ * @param MembershipEntity $membership
+ *   The sub-member being renewed.
+ *
+ * @return bool
+ *   TRUE if the renewal may proceed.
+ */
+function membership_entity_hierarchy_renew_sub_member_access(MembershipEntity $membership) {
+  if (user_access('administer membership terms') || user_access('administer memberships')) {
+    return TRUE;
+  }
+
+  return membership_entity_hierarchy_manages_sub_membership('edit', $membership);
+}
+
+/**
+ * Say once per parent what stopped a bulk renewal, rather than once per row.
+ *
+ * Every reason a row is refused is a property of the membership above it, so on
+ * a roster of two hundred the same sentence would otherwise be printed two
+ * hundred times and bury everything else on the page.
+ *
+ * @param string $reason
+ *   A key identifying the kind of refusal.
+ * @param int $pid
+ *   The parent membership id, or empty where there is none.
+ * @param string $message
+ *   The message to show the first time this reason arises for this parent.
+ */
+function _membership_entity_hierarchy_renew_action_warn($reason, $pid, $message) {
+  $seen = &backdrop_static(__FUNCTION__, array());
+  $key = $reason . ':' . (int) $pid;
+  if (isset($seen[$key])) {
+    return;
+  }
+
+  $seen[$key] = TRUE;
+  backdrop_set_message($message, 'warning');
+}
+
+/**
+ * Insert an element into an array before a given key.
+ *
+ * Render order follows array order where weights are equal, so this keeps a
+ * moved element where it sat before it moved.
+ *
+ * @param array $array
+ *   The array to insert into, altered in place.
+ * @param string $before
+ *   The key to insert in front of. Appended if absent.
+ * @param string $key
+ *   The key of the new element.
+ * @param mixed $value
+ *   The new element.
+ */
+function _membership_entity_hierarchy_insert_before(array &$array, $before, $key, $value) {
+  $position = array_search($before, array_keys($array), TRUE);
+  if ($position === FALSE) {
+    $array[$key] = $value;
+    return;
+  }
+
+  $array = array_slice($array, 0, $position, TRUE)
+    + array($key => $value)
+    + array_slice($array, $position, NULL, TRUE);
+}
+
+/**
+ * Deprecated: use membership_entity_hierarchy_furthest_term().
+ *
+ * Kept for one release, for callers written before the split.
+ *
+ * @param int $mid
+ *   The membership id.
+ *
+ * @return object|false
+ *   The active term reaching furthest into the future, or FALSE.
+ */
+function _membership_entity_term_furthest($mid) {
+  return membership_entity_hierarchy_furthest_term($mid);
+}
+
+/**
+ * Deprecated: use membership_entity_hierarchy_covers_to().
+ *
+ * Kept for one release, for callers written before the split.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to measure.
+ * @param string|null $end
+ *   The end date to compare against.
+ *
+ * @return bool
+ *   TRUE if the membership is already covered that far.
+ */
+function _membership_entity_term_covers_to(MembershipEntity $membership, $end) {
+  return membership_entity_hierarchy_covers_to($membership, $end);
+}
+
+/**
+ * Deprecated: use membership_entity_hierarchy_copy_term_from_parent().
+ *
+ * Kept for one release, for callers written before the split.
+ *
+ * @param MembershipEntity $membership
+ *   The membership to give a term to.
+ * @param int $parent_mid
+ *   The membership id to copy the term from.
+ * @param object $parent_term
+ *   The specific term to copy, or NULL for the parent's current term.
+ *
+ * @return MembershipEntityTerm|false
+ *   The term created, or FALSE.
+ */
+function membership_entity_term_copy_from_parent(MembershipEntity $membership, $parent_mid, $parent_term = NULL) {
+  return membership_entity_hierarchy_copy_term_from_parent($membership, $parent_mid, $parent_term);
+}

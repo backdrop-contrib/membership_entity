@@ -138,33 +138,6 @@ function membership_entity_type_permission() {
         'title' => t('Delete own %type membership', array('%type' => $type->label)),
       ),
     );
-
-    // Sub-member administration, for the head of a household or the secretary
-    // of an association. Backdrop roles are global, so "only my own members"
-    // cannot be expressed as a role alone — these are checked against the
-    // membership's parent in membership_entity_membership_entity_access().
-    // Only offered on types that can actually hold sub-members.
-    $settings = membership_entity_get_bundle_settings($type_name);
-    if (empty($settings['max_children'])) {
-      continue;
-    }
-
-    $perms += array(
-      $type_name . ' view sub-memberships' => array(
-        'title' => t('View the sub-members of their own %type membership', array('%type' => $type->label)),
-      ),
-      $type_name . ' edit sub-memberships' => array(
-        'title' => t('Edit the sub-members of their own %type membership', array('%type' => $type->label)),
-      ),
-      $type_name . ' create sub-memberships' => array(
-        'title' => t('Add sub-members to their own %type membership', array('%type' => $type->label)),
-        'description' => t('The new membership is always attached to their own; they cannot attach it elsewhere.'),
-      ),
-      $type_name . ' detach sub-memberships' => array(
-        'title' => t('Remove a sub-member from their own %type membership', array('%type' => $type->label)),
-        'description' => t('Removes the member from the membership. Their own membership and user account are untouched — deleting those stays with the site administrator, or with the member themselves through the "delete own membership" permission. Attaching a member to a different membership is also an administrator action.'),
-      ),
-    );
   }
   return $perms;
 }

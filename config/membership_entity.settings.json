@@ -2,8 +2,6 @@
     "_config_name": "membership_entity.settings",
     "membership_entity_required": false,
     "membership_entity_settings": [],
-    "postal_members": false,
-    "postal_mail_domain": "",
     "join_path": "",
     "renew_path": ""
 }
