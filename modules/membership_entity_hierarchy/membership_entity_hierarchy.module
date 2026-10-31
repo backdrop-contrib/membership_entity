@@ -16,15 +16,6 @@
  */
 
 /**
- * Implements hook_autoload_info().
- */
-function membership_entity_hierarchy_autoload_info() {
-  return array(
-    'views_handler_field_membership_renewal_state' => 'views/views_handler_field_membership_renewal_state.inc',
-  );
-}
-
-/**
  * Implements hook_views_api().
  */
 function membership_entity_hierarchy_views_api() {

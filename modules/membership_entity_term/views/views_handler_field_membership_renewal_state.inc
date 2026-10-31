@@ -3,6 +3,9 @@
 /**
  * @file
  * Contains the sub-member renewal state field handler.
+ *
+ * It lives in Term, not Hierarchy, because the Expiry field extends it and
+ * must work without Hierarchy enabled. Hierarchy registers the field itself.
  */
 
 /**

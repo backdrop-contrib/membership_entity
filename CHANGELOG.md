@@ -1,5 +1,12 @@
 # Changelog - Membership Entity
 
+## 1.x-1.1.1 (2026-10-31)
+
+Git tag: `1.x-1.1.1`.
+
+### Fixed
+- "Class views_handler_field_membership_renewal_state not found" during update.php from 1.0.x, and on any site using the Expiry field without Hierarchy: the handler the Expiry field extends is back in Term.
+
 ## 1.x-1.1.0 (2026-10-31)
 
 Git tag: `1.x-1.1.0`.
