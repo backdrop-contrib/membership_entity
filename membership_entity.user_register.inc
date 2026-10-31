@@ -38,24 +38,7 @@ function membership_entity_user_account_form(&$form, &$form_state) {
     '#maxlength' => EMAIL_MAX_LENGTH,
     '#description' => t('A valid e-mail address. All e-mails from the system will be sent to this address. The e-mail address is not made public and will only be used if you wish to receive a new password or wish to receive certain news or notifications by e-mail.'),
     '#required' => TRUE,
-    '#states' => array(
-      'invisible' => array(
-        ':input[name="user[postal]"]' => array('checked' => TRUE),
-      ),
-    ),
   );
-
-  // Members who deal with the club entirely by post have no address to give.
-  // They still need an account to hold a membership, so one is generated for
-  // them — see membership_entity_generate_postal_mail().
-  if (config_get('membership_entity.settings', 'postal_members')) {
-    $form['user']['account']['postal'] = array(
-      '#type' => 'checkbox',
-      '#title' => t('I have no e-mail address (postal member)'),
-      '#description' => t('Tick this only if you deal with us entirely by post. You will not be able to sign in or reset a password, and we will contact you by post.'),
-      '#weight' => 1,
-    );
-  }
 
   // Display password field only when user is allowed to assign a password
   // during registration.
@@ -65,11 +48,6 @@ function membership_entity_user_account_form(&$form, &$form_state) {
       '#size' => 25,
       '#description' => t('Provide a password for the new account in both fields.'),
       '#required' => TRUE,
-      '#states' => array(
-        'invisible' => array(
-          ':input[name="user[postal]"]' => array('checked' => TRUE),
-        ),
-      ),
     );
   }
 
@@ -99,16 +77,6 @@ function membership_entity_user_account_form_validate($form, &$form_state) {
     elseif ((bool) db_select('users')->fields('users', array('uid'))->condition('uid', $uid, '<>')->condition('name', db_like($values['name']), 'LIKE')->range(0, 1)->execute()->fetchField()) {
       form_set_error('user][name', t('The name %name is already taken.', array('%name' => $values['name'])));
     }
-  }
-
-  // A postal member supplies no address, so one is generated from the username
-  // and the entered value — if any — is discarded. Validation below is skipped
-  // because a generated address is unique and undeliverable by construction.
-  if (!empty($values['postal'])) {
-    if (!empty($values['name']) && !form_get_errors()) {
-      form_set_value($form['user']['account']['mail'], membership_entity_generate_postal_mail($values['name']), $form_state);
-    }
-    return;
   }
 
   // Trim whitespace from mail, to prevent confusing 'e-mail not valid'

@@ -1,6 +1,6 @@
 {
     "_config_name": "views.view.membership_entity_renewals",
-    "module": "membership_entity_term",
+    "module": "membership_entity_hierarchy",
     "name": "membership_entity_renewals",
     "description": "The sub-members of one membership, for marking off against a renewal list.",
     "tag": "membership_entity",

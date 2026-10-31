@@ -1,5 +1,25 @@
 # Changelog - Membership Entity
 
+## 1.x-1.1.0 (2026-10-31)
+
+Git tag: `1.x-1.1.0`.
+
+### Added
+- Submodule Membership Entity Hierarchy: sub-members, association-scoped administration, roster renewals and the renewals tab, moved out of the main module and Term.
+- Submodule Membership Entity Postal Members: members with no e-mail address, moved out of the main module.
+- `hook_membership_entity_may_create_member_account_alter()` and `hook_membership_entity_term_renewable_alter()`.
+
+### Changed
+- Run update.php: it enables Hierarchy where any membership has a parent or a type allows sub-members, and Postal Members where postal members are on or a generated address exists.
+- Parent links already stored (the `pid` column, effective status, the role cascade, Views fields) stay in the main module and keep working with Hierarchy off.
+- `hook_membership_entity_access()` in the main module returns NULL rather than FALSE when it grants nothing, so another module's grant is no longer vetoed.
+- Postal settings move to `membership_entity_postal.settings`.
+- Hierarchy and postal helpers renamed into their submodules; `_membership_entity_term_furthest()`, `_membership_entity_term_covers_to()`, `membership_entity_term_copy_from_parent()` and `membership_entity_generate_postal_mail()` remain as deprecated wrappers for one release.
+
+### Fixed
+- A membership lapsing, being saved or being deleted removed its role even where the member held another active membership granting it (e.g. one they rejoined with).
+- Update 1004 gives back the role to active members who lost it that way.
+
 ## 1.x-1.0.4 (2026-10-29)
 
 Git tag: `1.x-1.0.4`.

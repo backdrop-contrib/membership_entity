@@ -1,0 +1,13 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for membership_entity_postal.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function membership_entity_postal_uninstall() {
+  config('membership_entity_postal.settings')->delete();
+}

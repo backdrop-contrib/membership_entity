@@ -1,0 +1,8 @@
+name = Membership Entity Hierarchy
+description = Sub-members: memberships that belong to another membership, such as the members of a household or of an affiliated association, with roster renewals and association-scoped administration.
+type = module
+package = Memberships
+backdrop = 1.x
+
+dependencies[] = membership_entity
+dependencies[] = membership_entity_term

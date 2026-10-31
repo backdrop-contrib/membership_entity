@@ -1,101 +1,90 @@
-CONTENTS OF THIS FILE
----------------------
-  * Introduction
-  * Installation
-  * Design Decisions
-  * Contributions and feature requests
-  * Issues
-  * Current Maintainers
-  * Credits
-  * License
+# Membership Entity
 
-INTRODUCTION
-------------
-This module was converted from Drupal 7.x to Backdrop 1.x by jayelless
-(James Scott) in July 2021, and has been maintained by albanycomputers
-(Steve Moorhouse) since July 2026.
+Membership Entity keeps memberships separate from user accounts. A membership
+is a record of its own, with its own fields, number, terms and history, and
+the member's account follows it: roles are given while the membership is
+active and taken away when it lapses.
 
-The Membership Entity module provides a separation between memberships and
-individual user accounts. This provides several advantages for managing
-membership sites.
+## Features
 
-  * Memberships are fieldable separately from users.
-  * X number of users may belong to a single membership. (eg. Primary and
-    secondary members)
-  * When a membership is activated all users attached to the membership are
-    given the active role.
-  * When a membership expires all users attached to the membership are given
-    the expired role.
-  * Keeps track of membership terms.
-  * Can be integrated with contrib module Rules to provide additional
-    functionality.
+- Memberships are fieldable separately from users, and can have several types
+  (individual, family, corporate and so on), each with its own role.
+- A site id number for every membership, never reused, plus optional
+  membership number fields checked for duplicates.
+- Terms: one year, five years, lifetime or any length you define, with grace
+  periods, a fixed renewal date for a membership year, and a full history.
+- Join and renew forms, or send members to your own pages (a shop product,
+  say) instead.
+- Lapsed members who rejoin can keep their old membership and number.
+- Nothing is deleted automatically: a retention period protects lapsed
+  memberships, and deleting a user keeps their membership record.
+- A "do not contact" flag that stops all mail to a member.
+- Views integration for listings, mailing lists and exports, including the
+  member's expiry date and a renewal-due marker.
 
-INSTALLATION
-------------
+## Submodules
 
-1. Download and install the following dependencies.
-  * Entity Plus - https://backdropcms.org/project/entity_plus
-  * Entity UI - https://backdropcms.org/project/entity_ui
+Enable only what the site needs.
 
-2. Enable the module(s).
-  * Membership Entity provides the core membership features
-  * Membership Entity Type allows the creation of multiple membership types
-  * Membership Entity Term handles expirations and renewals
+- **Membership Entity Type** — create and configure membership types.
+- **Membership Entity Term** — term lengths, expiry and renewals.
+- **Membership Entity Hierarchy** — sub-members: memberships that belong to
+  another, such as the members of a household or of an affiliated
+  association. The parent's secretary can manage their own sub-members, one
+  payment can renew everyone, and a renewals tab lists who is due. Needs
+  Term.
+- **Membership Entity Postal Members** — members with no e-mail address. Their
+  account gets an undeliverable address and no mail is sent to it.
+- **Membership Entity Ubercart** — sell memberships as Ubercart products. A
+  Membership product feature joins or renews the buyer when the order is
+  paid, copies a new member's address from the order into their account, and
+  warns where Ubercart Roles would assign a conflicting role. Needs Term and
+  Ubercart.
 
-3 Create a roles
-  * Each membership type can have a role that is assigned and removed
-    automatically when the membership status is active or expired.
-  * Secondary members may be assigned their own unique role.
+## Requirements
 
-4. Configure memberships at /admin/memberships
+- [Entity Plus](https://backdropcms.org/project/entity_plus)
+- [Entity UI](https://backdropcms.org/project/entity_ui)
+- [Ubercart](https://backdropcms.org/project/ubercart), for Membership Entity
+  Ubercart only
 
-5. Create memberships.
+## Installation
 
-DESIGN DECISIONS
-----------------
-This module does not create any roles upon installation. This requires site
-administrators to create roles that will be used for active memberships. Active
-primary and secondary member roles may be set on per membership type basis.
+1. Install this module and its requirements using the
+   [official Backdrop CMS instructions](https://docs.backdropcms.org/documentation/extend-with-modules).
+2. Enable Membership Entity and the submodules you need.
+3. Create the roles your members should hold. The module creates none: each
+   membership type names the role given while a membership is active.
+4. Configure memberships at `admin/memberships`.
 
-CONTRIBUTIONS AND FEATURE REQUESTS
-----------------------------------
-Issues and feature requests should be reported at
-https://backdropcms.org/project/membership_entity.
+Upgrading from 1.0.x: run update.php. It enables Hierarchy and Postal Members
+on sites that already use sub-members or postal members, so nothing changes.
 
-Issues will be reviewed as quickly as is reasonable with the understanding that
-the maintainers have personal and professional responsibilities outside of this
-module.
+## Issues
 
-Feature requests will generally only be developed as the need arises for
-paying clients. However, if you write a feature and submit a patch it will
-gladly be considered for inclusion in the module.
+Bugs and feature requests should be reported in
+[the Issue Queue](https://github.com/backdrop-contrib/membership_entity/issues).
 
-Issues
-------
+Feature requests will generally be developed as the need arises. If you write
+a feature and submit a pull request it will gladly be considered.
 
-Bugs and feature requests should be reported in [the Issue Queue](https://github.com/backdrop-contrib/membership_entity/issues).
-
-Current Maintainers
--------------------
+## Current Maintainers
 
 - [Steve Moorhouse (albanycomputers)](https://github.com/albanycomputers)
 
 Seeking co-maintainers.
 
-Credits
--------
+## Credits
 
-Drupal module sponsored in part by:
-* Monarch Digital (www.monarchdigital.com)
-* The North American Rock Garden Society (www.nargs.org)
-* The Porsche Club of America (www.pca.org)
+- Ported to Backdrop CMS by [Jayelless](https://github.com/jayelless) (James
+  Scott) in July 2021; maintained by albanycomputers since July 2026.
+- Based on [Membership Entity](https://www.drupal.org/project/membership_entity),
+  maintained for Drupal by [Caleb Thorne](https://www.drupal.org/u/draenen).
+- Drupal module sponsored in part by Monarch Digital
+  (www.monarchdigital.com), the North American Rock Garden Society
+  (www.nargs.org) and the Porsche Club of America (www.pca.org).
 
-- Ported to Backdrop CMS by [Jayelless](https://github.com/jayelless).
-- Current Drupal maintainer [Caleb Thorne](https://www.drupal.org/u/draenen).
-- Based on [Membership Entity](https://www.drupal.org/project/membership_entity).
+## License
 
-License
--------
-
-This project is GPL v2 software.
-See the LICENSE.txt file in this directory for complete text.
+This project is GPL v2 software. See the LICENSE.txt file in this directory
+for complete text.

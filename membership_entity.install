@@ -213,6 +213,125 @@ function membership_entity_update_1002() {
 }
 
 /**
+ * Move sub-members and postal members into their own submodules.
+ *
+ * Each is enabled here wherever the site is already using it, so nothing an
+ * existing site does stops working: hierarchy where any membership has a parent
+ * or any type allows sub-members, postal where postal members are switched on
+ * or any account already holds a generated address.
+ */
+function membership_entity_update_1003() {
+  $messages = array();
+  $config = config('membership_entity.settings');
+
+  // Sub-members. The settings live in each type's data, and the defaults for
+  // them have moved with the code, so read what is stored.
+  $hierarchy = (bool) db_query_range('SELECT 1 FROM {membership_entity} WHERE pid > 0', 0, 1)->fetchField();
+  if (!$hierarchy) {
+    foreach (array_keys(membership_entity_get_bundles()) as $bundle) {
+      $settings = membership_entity_get_bundle_settings($bundle);
+      if (!empty($settings['max_children'])) {
+        $hierarchy = TRUE;
+        break;
+      }
+    }
+  }
+
+  if ($hierarchy && !module_exists('membership_entity_hierarchy')) {
+    if (module_exists('membership_entity_term')) {
+      module_enable(array('membership_entity_hierarchy'), FALSE);
+      $messages[] = t('Sub-members are in use, so Membership Entity Hierarchy has been enabled.');
+    }
+    else {
+      $messages[] = t('Sub-members are in use, but Membership Entity Hierarchy needs Membership Entity Terms, which is not enabled. Enable both to manage them again.');
+    }
+  }
+
+  // The renewals view moved from membership_entity_term with the roster code.
+  // Without the module its tab would offer an action that no longer exists.
+  $view = config('views.view.membership_entity_renewals');
+  if (!$view->isNew()) {
+    if (module_exists('membership_entity_hierarchy')) {
+      $view->set('module', 'membership_entity_hierarchy')->save();
+    }
+    elseif ($view->get('module') == 'membership_entity_term') {
+      $view->delete();
+    }
+  }
+
+  // Postal members. The generator and the mail suppression used to run on
+  // every site whatever the setting said, so any account already holding a
+  // generated address keeps the module too.
+  $domain = $config->get('postal_mail_domain');
+  if (empty($domain)) {
+    global $base_url;
+    $host = preg_replace('/^www\./', '', (string) parse_url($base_url, PHP_URL_HOST));
+    $domain = (!empty($host) ? $host : 'membership') . '.invalid';
+  }
+  $postal = (bool) $config->get('postal_members')
+    || (bool) db_query_range('SELECT 1 FROM {users} WHERE mail LIKE :mail', 0, 1, array(
+      ':mail' => '%@' . db_like($domain),
+    ))->fetchField();
+
+  if ($postal && !module_exists('membership_entity_postal')) {
+    module_enable(array('membership_entity_postal'), FALSE);
+    $messages[] = t('Postal members are in use, so Membership Entity Postal Members has been enabled.');
+  }
+  // Only while the old keys are still there: run a second time, this would
+  // otherwise overwrite the moved settings with empty values.
+  if (module_exists('membership_entity_postal') && $config->get('postal_members') !== NULL) {
+    config('membership_entity_postal.settings')
+      ->set('postal_members', (bool) $config->get('postal_members'))
+      ->set('postal_mail_domain', (string) $config->get('postal_mail_domain'))
+      ->save();
+  }
+
+  $config->clear('postal_members')->clear('postal_mail_domain')->save();
+
+  return implode(' ', $messages);
+}
+
+/**
+ * Restore membership roles lost to an older membership of the same person.
+ *
+ * Before 1.1.0 a lapsed, saved or deleted membership removed its role even
+ * where the member held another active membership granting it - typically one
+ * they rejoined with under a new number. Gives every active member the role
+ * their membership grants. Roles are only added here, never removed.
+ */
+function membership_entity_update_1004() {
+  module_load_include('module', 'membership_entity');
+  $mids = db_query('SELECT mid FROM {membership_entity} WHERE status = :active', array(
+    ':active' => MEMBERSHIP_ENTITY_ACTIVE,
+  ))->fetchCol();
+
+  $restored = 0;
+  foreach (array_chunk($mids, 100) as $chunk) {
+    foreach (membership_entity_load_multiple($chunk) as $membership) {
+      if (membership_entity_effective_status($membership) != MEMBERSHIP_ENTITY_ACTIVE) {
+        continue;
+      }
+      $data = membership_entity_get_bundle_settings($membership->type);
+      $grants = array($membership->uid => $data['primary_role']);
+      foreach ($membership->secondary_members as $uid) {
+        $grants[$uid] = $data['secondary_role'];
+      }
+      foreach ($grants as $uid => $rid) {
+        $account = $rid ? user_load($uid) : FALSE;
+        if ($account && !in_array($rid, $account->roles, TRUE)) {
+          $account->roles[] = $rid;
+          user_save($account);
+          $restored++;
+        }
+      }
+    }
+    entity_get_controller('membership_entity')->resetCache();
+  }
+
+  return format_plural($restored, 'Restored a membership role to 1 account.', 'Restored membership roles to @count accounts.');
+}
+
+/**
  * Implements hook_uninstall().
  */
 function membership_entity_uninstall() {

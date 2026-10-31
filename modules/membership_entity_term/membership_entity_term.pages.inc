@@ -413,23 +413,8 @@ function membership_entity_term_create_form(&$form, &$form_state) {
       'membership_entity_type' => $membership->type,
     ));
 
-    // Where the parent is already fixed — which is the whole of the "add
-    // sub-member" route — and that parent pays for its sub-members, every term
-    // control on this form is decoration: the submit handler discards whatever
-    // is entered and copies the parent's term down instead. Say what the term
-    // will be rather than asking for one that cannot be honoured.
-    //
-    // The generic add form is deliberately left alone. There the parent is
-    // chosen from a select of memberships whose types may differ in this
-    // setting, so whether the term is inherited is not known until the form
-    // comes back.
-    if (!empty($membership->pid) && membership_entity_child_inherits_terms($membership)) {
-      _membership_entity_term_inherited_notice($form, $membership);
-      $form['actions']['submit']['#submit'][] = 'membership_entity_term_create_form_submit';
-      return;
-    }
-
-    // Add membership term fields.
+    // Add membership term fields. membership_entity_hierarchy takes these off
+    // again where the membership above pays, and swaps the submit handler.
     membership_entity_term_form($form, $form_state);
     $form['#validate'][] = 'membership_entity_term_form_validate';
 
@@ -446,75 +431,11 @@ function membership_entity_term_create_form(&$form, &$form_state) {
 }
 
 /**
- * State the term a sub-member will be given, in place of asking for one.
- *
- * Shown where the membership above pays for everyone beneath it. The date comes
- * from the same lookup the submit handler uses, so what is promised here is
- * what is written.
- *
- * @param array $form
- *   The membership form, altered in place.
- * @param MembershipEntity $membership
- *   The sub-member being created, whose parent is already fixed.
- */
-function _membership_entity_term_inherited_notice(&$form, MembershipEntity $membership) {
-  $parent_term = membership_entity_term_get_current($membership->pid);
-  $parent = membership_entity_parent_label($membership->pid);
-
-  if ($parent_term) {
-    $message = t('This membership is paid for by @parent, so it takes that membership’s term and will run to @date. It is renewed whenever @parent is.', array(
-      '@parent' => $parent,
-      '@date' => format_date(strtotime($parent_term->end), 'custom', 'j F Y'),
-    ));
-    $type = 'status';
-  }
-  else {
-    // Worth saying before the form is submitted rather than after: the person
-    // filling it in may want to renew the membership above first.
-    $message = t('This membership is paid for by @parent, but @parent has no current term, so this member will start with none. They will be covered from the next time @parent is renewed.', array(
-      '@parent' => $parent,
-    ));
-    $type = 'warning';
-  }
-
-  $form['membership_term_inherited'] = array(
-    '#type' => 'item',
-    '#title' => t('Term'),
-    '#markup' => '<div class="messages ' . $type . '">' . $message . '</div>',
-    '#weight' => 20,
-  );
-}
-
-/**
  * Submit handler for creating new terms.
  */
 function membership_entity_term_create_form_submit($form, &$form_state) {
   $membership = &$form_state['membership_entity'];
   $term = $form['#membership_entity_term'];
-
-  // Where the chosen parent pays for all of its sub-members, the term is not the
-  // one entered on this form: it is the parent's, copied down so that the two
-  // run to the same date. The parent is only known once the form has been
-  // submitted, which is why any term length entered above is discarded here
-  // rather than hidden earlier.
-  //
-  // The sub-member does get a term of their own, rather than none at all. It is
-  // what gives them a joining date, a renewal history, and a lapse that can be
-  // seen and explained — a membership with no terms sits at active for ever and
-  // leaves no record of any of it.
-  if (membership_entity_child_inherits_terms($membership)) {
-    if ($copied = membership_entity_term_copy_from_parent($membership, $membership->pid)) {
-      $membership->terms[$copied->id] = $copied;
-      $form_state['membership_entity_term'] = $copied;
-      backdrop_set_message(t('This membership is paid for by the membership it belongs to, and has been given a term running to the same date, @date.', array(
-        '@date' => format_date(strtotime($copied->end), 'custom', 'j F Y'),
-      )));
-    }
-    else {
-      backdrop_set_message(t('This membership is paid for by the membership it belongs to, but that membership has no current term, so no term could be given. It will be covered from the next time the membership above it is renewed.'), 'warning');
-    }
-    return;
-  }
 
   form_state_values_clean($form_state);
   _membership_entity_form_submit_build_entity('membership_entity_term', $term, $form['membership_term'], $form_state);

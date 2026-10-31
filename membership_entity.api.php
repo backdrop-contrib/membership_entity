@@ -121,3 +121,22 @@ function hook_membership_entity_effective_status_alter(&$status, $membership) {
     $status = MEMBERSHIP_ENTITY_ACTIVE;
   }
 }
+
+/**
+ * Alter whether the membership form may create the primary member's account.
+ *
+ * By default only users who can administer memberships or users are offered
+ * the fields, and only while adding a membership. membership_entity_hierarchy
+ * uses this to extend it to an association secretary adding a sub-member.
+ *
+ * @param bool $may
+ *   Whether the account creation fields are offered.
+ * @param MembershipEntity $membership
+ *   The membership being added.
+ */
+function hook_membership_entity_may_create_member_account_alter(&$may, $membership) {
+  // Let membership officers add members who have no account yet.
+  if (user_access('add members by post')) {
+    $may = TRUE;
+  }
+}
