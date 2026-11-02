@@ -378,6 +378,9 @@ function membership_entity_term_membership_entity_bundle_settings_defaults() {
     // Empty means terms run from wherever they start, which is the behaviour
     // every existing site has.
     'fixed_renewal_date' => '',
+    // FALSE keeps the end as the instant cover stops, which is the behaviour
+    // every existing site has.
+    'end_of_day' => FALSE,
     // Which view renders the term ledger on a membership page, as
     // "view_name:display_id".
     'term_list_view' => 'membership_entity_terms:term_list',
@@ -399,22 +402,39 @@ function membership_entity_term_membership_entity_bundle_settings_defaults() {
  *   The term being saved.
  */
 function membership_entity_term_membership_entity_term_end_date_alter(&$end, $term) {
-  // A lifetime term has no end to move, and a membership type with no fixed
-  // date keeps the ordinary rolling behaviour.
+  // A lifetime term has no end to move.
   if ($term->term == 'lifetime') {
     return;
   }
 
   $settings = membership_entity_get_bundle_settings($term->membership_entity_type);
-  if (empty($settings['fixed_renewal_date'])) {
-    return;
+  $boundary = empty($settings['fixed_renewal_date']) ? FALSE : _membership_entity_term_renewal_boundary($settings['fixed_renewal_date']);
+  if ($boundary) {
+    _membership_entity_term_snap_to_renewal($end, $term, $boundary);
   }
 
-  $boundary = _membership_entity_term_renewal_boundary($settings['fixed_renewal_date']);
-  if (empty($boundary)) {
-    return;
+  // The date a member is shown becomes their last day, and cover runs to the
+  // end of it. A snapped renewal is the midnight after the last day of cover,
+  // so it steps back onto that day first.
+  if (!empty($settings['end_of_day'])) {
+    if ($boundary) {
+      $end->modify('-1 day');
+    }
+    $end->setTime(23, 59, 59);
   }
+}
 
+/**
+ * Moves a term's end onto the membership type's fixed renewal date.
+ *
+ * @param BackdropDateTime $end
+ *   The calculated end date, moved in place.
+ * @param object $term
+ *   The term being saved.
+ * @param array $boundary
+ *   The renewal day and month, from _membership_entity_term_renewal_boundary().
+ */
+function _membership_entity_term_snap_to_renewal(&$end, $term, array $boundary) {
   // Everything below stays inside $end's own timezone. Working in timestamps
   // would silently reintroduce the server's, and midnight is exactly the moment
   // where that difference shows.
@@ -573,6 +593,80 @@ function membership_entity_term_membership_entity_type_update($info) {
   if (!empty($info->old_type) && $info->type != $info->old_type) {
     field_attach_rename_bundle('membership_entity_term', $info->old_type, $info->type);
   }
+  membership_entity_term_apply_end_of_day($info->type);
+}
+
+/**
+ * Moves existing terms of a type to 23:59:59 on their end date.
+ *
+ * Terms saved after "Terms end at the end of the day" is turned on get the new
+ * end time as they are calculated; this brings the ones already stored into
+ * line, so a member is not cut off a day early because their term predates the
+ * setting. Run on every save of the type: it only touches terms not already
+ * ending at 23:59:59, so it changes nothing the second time.
+ *
+ * Only the time moves, never the date - except on a fixed renewal date, whose
+ * stored end is the midnight after the last day of cover and steps back onto
+ * that day. Turning the setting off again does not move anything back.
+ *
+ * @param string $bundle
+ *   The membership type.
+ *
+ * @return int
+ *   The number of terms changed.
+ */
+function membership_entity_term_apply_end_of_day($bundle) {
+  $settings = membership_entity_get_bundle_settings($bundle);
+  if (empty($settings['end_of_day'])) {
+    return 0;
+  }
+
+  $args = array(':type' => $bundle);
+  $mids = "mid IN (SELECT mid FROM {membership_entity} WHERE type = :type) AND end IS NOT NULL AND TIME(end) <> '23:59:59'";
+  $count = 0;
+  if (!empty($settings['fixed_renewal_date'])) {
+    $count += db_query("UPDATE {membership_entity_term} SET end = CONCAT(DATE_SUB(DATE(end), INTERVAL 1 DAY), ' 23:59:59') WHERE $mids AND TIME(end) = '00:00:00'", $args, array('return' => Database::RETURN_AFFECTED));
+  }
+  $count += db_query("UPDATE {membership_entity_term} SET end = CONCAT(DATE(end), ' 23:59:59') WHERE $mids", $args, array('return' => Database::RETURN_AFFECTED));
+
+  if ($count) {
+    entity_get_controller('membership_entity_term')->resetCache();
+
+    // A term cron expired earlier today now runs to tonight, so it is active
+    // again, and so are its membership and the member's role. The status is
+    // written directly: saving the term would recalculate its end from start
+    // and length, which an imported term need not match.
+    $ids = db_query("SELECT id FROM {membership_entity_term} WHERE mid IN (SELECT mid FROM {membership_entity} WHERE type = :type) AND status = :expired AND start <= :now AND end >= :now", $args + array(
+      ':expired' => MEMBERSHIP_ENTITY_EXPIRED,
+      ':now' => date_format_date(date_now('UTC'), 'custom', DATE_FORMAT_DATETIME),
+    ))->fetchCol();
+    if ($ids) {
+      db_update('membership_entity_term')
+        ->fields(array('status' => MEMBERSHIP_ENTITY_ACTIVE))
+        ->condition('id', $ids)
+        ->execute();
+      entity_get_controller('membership_entity_term')->resetCache($ids);
+      foreach (membership_entity_term_load_multiple($ids) as $term) {
+        _membership_entity_term_insert_update($term);
+      }
+    }
+
+    watchdog('membership_entity_term', 'Moved the end of @count terms of membership type %type to 23:59:59 on their end date.', array(
+      '@count' => $count,
+      '%type' => $bundle,
+    ));
+  }
+  return $count;
+}
+
+/**
+ * Submit handler: applies the end of day setting where there are no types.
+ *
+ * Without membership_entity_type the settings are not saved as a type, so the
+ * type update hook never fires.
+ */
+function membership_entity_term_settings_end_of_day_submit($form, &$form_state) {
+  membership_entity_term_apply_end_of_day('membership');
 }
 
 /**

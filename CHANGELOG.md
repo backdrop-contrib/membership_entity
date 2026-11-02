@@ -1,5 +1,17 @@
 # Changelog - Membership Entity
 
+## 1.x-1.2.0 (2026-11-02)
+
+Git tag: `1.x-1.2.0`.
+
+### Added
+- Submodule Membership Entity Renewal Reminders: e-mails members a set number of days before and after their membership expires (default 30, 7 and 1 before, 14 after), on cron, not before a chosen hour.
+- Editable subject and body for the before and after messages, with `[membership-reminder:*]` tokens (member name, number, expiry date, days, renew URL) alongside user and site tokens.
+- Optional daily summary e-mail of the reminders sent, listing members with no e-mail address separately to be reminded by post.
+- "Due today" list and a test button on the Reminders tab (`admin/memberships/reminders`).
+- Each reminder is sent once per expiry date; a renewal or changed date needs no cancelling, and a missed cron day sends only the latest reminder due. Lifetime members, "do not contact" members and sub-members whose parent pays are left out.
+- Term: "Terms end at the end of the day" setting per membership type. The end date becomes the last day of cover and terms run to 23:59:59 on it; saving with it on moves existing terms of the type the same way (on a fixed renewal date, to the last day of cover), and reactivates any membership expired earlier that day. Off by default.
+
 ## 1.x-1.1.1 (2026-10-31)
 
 Git tag: `1.x-1.1.1`.

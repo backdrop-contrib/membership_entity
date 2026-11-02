@@ -1,0 +1,515 @@
+<?php
+
+/**
+ * @file
+ * Renewal reminders: e-mails sent a set number of days before and after a
+ * membership expires.
+ *
+ * Driven by dates, not by a schedule written when a term is saved. Each cron
+ * run asks which memberships have reached a reminder date and have not had
+ * that reminder for that expiry date, so a renewal, a changed date or a lapse
+ * needs no cancelling: a renewed membership simply no longer matches, and a
+ * moved date earns its own reminders. If cron misses a day the reminder goes
+ * the next day, and only the latest one due is sent, never a backlog.
+ */
+
+/**
+ * Most reminders handled in one cron run; the rest go on the next.
+ */
+define('MEMBERSHIP_ENTITY_REMINDER_BATCH', 200);
+
+/**
+ * Implements hook_config_info().
+ */
+function membership_entity_reminder_config_info() {
+  $prefixes['membership_entity_reminder.settings'] = array(
+    'label' => t('Renewal reminder settings'),
+    'group' => t('Membership Entity'),
+  );
+  return $prefixes;
+}
+
+/**
+ * Implements hook_menu().
+ */
+function membership_entity_reminder_menu() {
+  $items['admin/memberships/reminders'] = array(
+    'title' => 'Reminders',
+    'description' => 'E-mails sent to members before and after their membership expires.',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('membership_entity_reminder_settings_form'),
+    'access arguments' => array('administer memberships'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 49,
+    'file' => 'membership_entity_reminder.admin.inc',
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_cron().
+ */
+function membership_entity_reminder_cron() {
+  $config = config('membership_entity_reminder.settings');
+  if (!$config->get('enabled')) {
+    return;
+  }
+
+  // Cron may run at any hour; members should not be written to at midnight.
+  $hour = (int) format_date(REQUEST_TIME, 'custom', 'G', membership_entity_reminder_timezone());
+  if ($hour < (int) $config->get('send_hour')) {
+    return;
+  }
+
+  membership_entity_reminder_send_due(membership_entity_reminder_today());
+}
+
+/**
+ * Implements hook_membership_entity_delete().
+ */
+function membership_entity_reminder_membership_entity_delete($membership) {
+  db_delete('membership_entity_reminder')
+    ->condition('mid', $membership->mid)
+    ->execute();
+}
+
+/**
+ * The site's time zone, which decides what "today" is.
+ *
+ * Cron runs as the anonymous user, so the site default is the only one that
+ * means anything here.
+ *
+ * @return string
+ *   A time zone name.
+ */
+function membership_entity_reminder_timezone() {
+  $timezone = config_get('system.date', 'default_timezone');
+  return $timezone ? $timezone : date_default_timezone_get();
+}
+
+/**
+ * Today's date on the site.
+ *
+ * @return string
+ *   The date, Y-m-d.
+ */
+function membership_entity_reminder_today() {
+  return format_date(REQUEST_TIME, 'custom', 'Y-m-d', membership_entity_reminder_timezone());
+}
+
+/**
+ * Moves a calendar date by a number of days.
+ *
+ * @param string $date
+ *   A date, Y-m-d.
+ * @param int $days
+ *   Days to add; negative to go back.
+ *
+ * @return string
+ *   The resulting date, Y-m-d.
+ */
+function membership_entity_reminder_add_days($date, $days) {
+  $date = new DateTime($date, new DateTimeZone('UTC'));
+  $date->modify(sprintf('%+d days', $days));
+  return $date->format('Y-m-d');
+}
+
+/**
+ * The configured reminder days, as offsets from the expiry date.
+ *
+ * @param Config $config
+ *   The reminder settings.
+ *
+ * @return int[]
+ *   Days relative to expiry, earliest first: negative before, positive after.
+ */
+function membership_entity_reminder_offsets($config = NULL) {
+  if (!$config) {
+    $config = config('membership_entity_reminder.settings');
+  }
+
+  $offsets = array();
+  foreach ((array) $config->get('days_before') as $days) {
+    $offsets[] = -abs((int) $days);
+  }
+  foreach ((array) $config->get('days_after') as $days) {
+    $offsets[] = abs((int) $days);
+  }
+
+  $offsets = array_unique($offsets);
+  sort($offsets);
+  return $offsets;
+}
+
+/**
+ * Describes a reminder offset in words.
+ *
+ * @param int $days
+ *   Days relative to expiry.
+ *
+ * @return string
+ *   For example "7 days before".
+ */
+function membership_entity_reminder_offset_label($days) {
+  if ($days < 0) {
+    return format_plural(-$days, '1 day before', '@count days before');
+  }
+  if ($days == 0) {
+    return t('On the day');
+  }
+  return format_plural($days, '1 day after', '@count days after');
+}
+
+/**
+ * Finds the reminders due today.
+ *
+ * A membership is due the latest of its reminder dates that has arrived, if it
+ * has not already had that one or a later one for the same expiry date. A
+ * "before" reminder is never sent once the membership has expired; it would
+ * tell the member something no longer true.
+ *
+ * Left out: lifetime members, cancelled and pending memberships, members
+ * flagged "do not contact", reminder dates before the configured start date,
+ * and sub-members whose parent pays for them - the reminder goes to the member
+ * who pays.
+ *
+ * @param string $today
+ *   The date to work from, Y-m-d.
+ * @param int $limit
+ *   The most to return; 0 for all.
+ *
+ * @return array
+ *   Keyed by mid, each an array with 'membership', 'expiry' (Y-m-d) and 'days'
+ *   (the reminder's offset from expiry). Earliest expiry first.
+ */
+function membership_entity_reminder_due($today, $limit = 0) {
+  $config = config('membership_entity_reminder.settings');
+  $offsets = membership_entity_reminder_offsets($config);
+  if (empty($offsets)) {
+    return array();
+  }
+
+  $start_date = $config->get('start_date');
+  if (empty($start_date)) {
+    $start_date = $today;
+  }
+
+  // Every expiry date that could have a reminder due today.
+  $from = membership_entity_reminder_add_days($today, -max(0, end($offsets)));
+  $to = membership_entity_reminder_add_days($today, max(0, -reset($offsets)) + 1);
+
+  $args = array(
+    ':statuses' => array(MEMBERSHIP_ENTITY_ACTIVE, MEMBERSHIP_ENTITY_EXPIRED),
+    ':from' => $from . ' 00:00:00',
+    ':to' => $to . ' 00:00:00',
+  );
+  $type_condition = '';
+  if ($types = array_filter((array) $config->get('types'))) {
+    $type_condition = 'AND m.type IN (:types)';
+    $args[':types'] = array_values($types);
+  }
+
+  // The expiry is the end of the furthest term. COUNT(t.end) falls short of
+  // COUNT(*) where a lifetime term (no end) is held, which never expires.
+  $result = db_query("SELECT m.mid, MAX(t.end) AS expiry
+    FROM {membership_entity} m
+    INNER JOIN {membership_entity_term} t ON t.mid = m.mid AND t.status IN (:statuses)
+    WHERE m.status IN (:statuses) AND m.no_contact = 0 $type_condition
+    GROUP BY m.mid
+    HAVING COUNT(t.end) = COUNT(*) AND MAX(t.end) >= :from AND MAX(t.end) < :to
+    ORDER BY expiry, m.mid", $args);
+
+  $candidates = array();
+  foreach ($result as $row) {
+    $expiry = substr($row->expiry, 0, 10);
+
+    $due = NULL;
+    foreach ($offsets as $days) {
+      if (membership_entity_reminder_add_days($expiry, $days) <= $today) {
+        $due = $days;
+      }
+    }
+    if ($due === NULL || ($due < 0 && $today >= $expiry)) {
+      continue;
+    }
+    if (membership_entity_reminder_add_days($expiry, $due) < $start_date) {
+      continue;
+    }
+
+    $handled = db_query_range('SELECT 1 FROM {membership_entity_reminder} WHERE mid = :mid AND expiry = :expiry AND days >= :days', 0, 1, array(
+      ':mid' => $row->mid,
+      ':expiry' => $expiry,
+      ':days' => $due,
+    ))->fetchField();
+    if (!$handled) {
+      $candidates[$row->mid] = array('expiry' => $expiry, 'days' => $due);
+    }
+  }
+
+  $due = array();
+  $memberships = $candidates ? membership_entity_load_multiple(array_keys($candidates)) : array();
+  foreach ($candidates as $mid => $item) {
+    if (empty($memberships[$mid]) || !membership_entity_reminder_pays_own_way($memberships[$mid])) {
+      continue;
+    }
+    $due[$mid] = $item + array('membership' => $memberships[$mid]);
+    if ($limit && count($due) >= $limit) {
+      break;
+    }
+  }
+
+  return $due;
+}
+
+/**
+ * Whether a membership is renewed by its own member rather than a parent's.
+ *
+ * Without Hierarchy there is no saying who pays for a sub-member whose link
+ * remains, so it is left out: the member above it is the one reminded.
+ *
+ * @param MembershipEntity $membership
+ *   The membership.
+ *
+ * @return bool
+ *   TRUE if its member should be reminded.
+ */
+function membership_entity_reminder_pays_own_way(MembershipEntity $membership) {
+  if (empty($membership->pid)) {
+    return TRUE;
+  }
+  if (!module_exists('membership_entity_hierarchy')) {
+    return FALSE;
+  }
+  return !membership_entity_hierarchy_child_inherits_terms($membership);
+}
+
+/**
+ * Sends the reminders due today, and the summary if one is wanted.
+ *
+ * @param string $today
+ *   The date to work from, Y-m-d.
+ *
+ * @return array
+ *   One row per reminder handled: 'membership', 'expiry', 'days', 'mail' and
+ *   'outcome'.
+ */
+function membership_entity_reminder_send_due($today) {
+  $handled = array();
+  foreach (membership_entity_reminder_due($today, MEMBERSHIP_ENTITY_REMINDER_BATCH) as $item) {
+    $handled[] = membership_entity_reminder_send($item['membership'], $item['expiry'], $item['days']);
+  }
+
+  if ($handled) {
+    membership_entity_reminder_send_summary($handled, $today);
+  }
+
+  return $handled;
+}
+
+/**
+ * Sends one reminder and records it.
+ *
+ * It is recorded whatever happens, failures included: a reminder that cannot
+ * be delivered is reported in the summary once rather than retried every cron
+ * run.
+ *
+ * @param MembershipEntity $membership
+ *   The membership.
+ * @param string $expiry
+ *   Its expiry date, Y-m-d.
+ * @param int $days
+ *   Which reminder: days relative to expiry.
+ *
+ * @return array
+ *   'membership', 'expiry', 'days', 'mail' and 'outcome', which is one of
+ *   sent, postal (no e-mail address: write to them), suppressed (stopped by
+ *   another module), no_account or failed.
+ */
+function membership_entity_reminder_send(MembershipEntity $membership, $expiry, $days) {
+  $account = !empty($membership->uid) ? user_load($membership->uid) : FALSE;
+  $mail = $account ? $account->mail : '';
+
+  if (!$account) {
+    $outcome = 'no_account';
+  }
+  elseif (module_exists('membership_entity_postal') && membership_entity_postal_is_postal_account($account)) {
+    $outcome = 'postal';
+  }
+  else {
+    $reply = config_get('membership_entity_reminder.settings', 'from');
+    $message = backdrop_mail('membership_entity_reminder', $days < 0 ? 'before' : 'after', $mail, user_preferred_language($account), array(
+      'membership' => $membership,
+      'account' => $account,
+      'expiry' => $expiry,
+      'days' => $days,
+    ), $reply ? $reply : NULL);
+
+    if ($message['result']) {
+      $outcome = 'sent';
+    }
+    else {
+      $outcome = $message['result'] === NULL ? 'suppressed' : 'failed';
+    }
+  }
+
+  db_insert('membership_entity_reminder')
+    ->fields(array(
+      'mid' => $membership->mid,
+      'expiry' => $expiry,
+      'days' => $days,
+      'uid' => $account ? $account->uid : 0,
+      'mail' => $mail,
+      'outcome' => $outcome,
+      'created' => REQUEST_TIME,
+    ))
+    ->execute();
+
+  watchdog('membership_entity_reminder', 'Renewal reminder (@when) for membership <a href="@url">%member_id</a>: @outcome.', array(
+    '@when' => membership_entity_reminder_offset_label($days),
+    '@url' => url('membership/' . $membership->mid),
+    '%member_id' => $membership->member_id,
+    '@outcome' => $outcome,
+  ), $outcome == 'failed' ? WATCHDOG_WARNING : WATCHDOG_INFO);
+
+  return array(
+    'membership' => $membership,
+    'expiry' => $expiry,
+    'days' => $days,
+    'mail' => $mail,
+    'outcome' => $outcome,
+  );
+}
+
+/**
+ * E-mails the summary of a day's reminders, where one is configured.
+ *
+ * @param array $handled
+ *   The rows returned by membership_entity_reminder_send().
+ * @param string $today
+ *   The date they were sent, Y-m-d.
+ */
+function membership_entity_reminder_send_summary(array $handled, $today) {
+  $config = config('membership_entity_reminder.settings');
+  $to = trim((string) $config->get('summary_to'));
+  if (!$config->get('summary') || $to === '') {
+    return;
+  }
+
+  backdrop_mail('membership_entity_reminder', 'summary', $to, language_default(), array(
+    'handled' => $handled,
+    'today' => $today,
+  ));
+}
+
+/**
+ * Implements hook_mail().
+ */
+function membership_entity_reminder_mail($key, &$message, $params) {
+  $config = config('membership_entity_reminder.settings');
+  $options = array(
+    'language' => $message['language'],
+    'sanitize' => FALSE,
+    'clear' => TRUE,
+  );
+
+  switch ($key) {
+    case 'before':
+    case 'after':
+      $data = array(
+        'user' => $params['account'],
+        'membership-reminder' => $params,
+      );
+      $message['subject'] = token_replace($config->get($key . '_subject'), $data, $options);
+      $message['body'][] = token_replace($config->get($key . '_body'), $data, $options);
+      break;
+
+    case 'summary':
+      $message['subject'] = t('Renewal reminders sent on @date: @count', array(
+        '@date' => membership_entity_reminder_format_date($params['today']),
+        '@count' => count($params['handled']),
+      ));
+      $message['body'] = membership_entity_reminder_summary_lines($params['handled']);
+      break;
+  }
+}
+
+/**
+ * The body of the summary e-mail.
+ *
+ * Grouped by outcome, because each group asks something different of the
+ * person reading it: nothing, a letter, or a look at why it failed.
+ *
+ * @param array $handled
+ *   The rows returned by membership_entity_reminder_send().
+ *
+ * @return string[]
+ *   Paragraphs of plain text.
+ */
+function membership_entity_reminder_summary_lines(array $handled) {
+  $groups = array(
+    'sent' => t('E-mailed'),
+    'postal' => t('No e-mail address - remind them by post'),
+    'no_account' => t('No user account - remind them another way'),
+    'suppressed' => t('Not sent - stopped by the site (e.g. do not contact)'),
+    'failed' => t('E-mail failed - check the address and the site log'),
+  );
+
+  $lines = array();
+  foreach ($groups as $outcome => $heading) {
+    $rows = array();
+    foreach ($handled as $item) {
+      if ($item['outcome'] != $outcome) {
+        continue;
+      }
+      // One item per line: plain-text mail is wrapped at 77 characters.
+      $row = array(
+        $item['membership']->member_id . '  ' . membership_entity_member_name($item['membership']),
+        '  ' . t('Expires @expiry (@when)', array(
+          '@expiry' => membership_entity_reminder_format_date($item['expiry']),
+          '@when' => backdrop_strtolower(membership_entity_reminder_offset_label($item['days'])),
+        )),
+      );
+      if ($item['mail'] && $outcome != 'postal') {
+        $row[] = '  ' . $item['mail'];
+      }
+      $row[] = '  ' . url('membership/' . $item['membership']->mid, array('absolute' => TRUE));
+      $rows[] = implode("\n", $row);
+    }
+    if ($rows) {
+      $lines[] = $heading . ' (' . count($rows) . "):\n\n" . implode("\n\n", $rows);
+    }
+  }
+
+  return $lines;
+}
+
+/**
+ * Formats a calendar date for an e-mail.
+ *
+ * The date is a calendar day, not a moment, so it is formatted from midday UTC:
+ * no time zone within twelve hours of UTC moves it onto another day.
+ *
+ * @param string $date
+ *   A date, Y-m-d.
+ * @param string $format
+ *   A PHP date format.
+ *
+ * @return string
+ *   The formatted date.
+ */
+function membership_entity_reminder_format_date($date, $format = 'j F Y') {
+  return format_date(membership_entity_reminder_timestamp($date), 'custom', $format, 'UTC');
+}
+
+/**
+ * A timestamp for a calendar date, at midday UTC.
+ *
+ * @param string $date
+ *   A date, Y-m-d.
+ *
+ * @return int
+ *   A Unix timestamp.
+ */
+function membership_entity_reminder_timestamp($date) {
+  return (new DateTime($date . ' 12:00:00', new DateTimeZone('UTC')))->getTimestamp();
+}

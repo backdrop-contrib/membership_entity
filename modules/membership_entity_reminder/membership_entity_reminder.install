@@ -1,0 +1,78 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for membership_entity_reminder.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function membership_entity_reminder_schema() {
+  $schema['membership_entity_reminder'] = array(
+    'description' => 'One row per renewal reminder handled, so none is sent twice.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'mid' => array(
+        'description' => 'The membership reminded.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'expiry' => array(
+        'description' => 'The expiry date reminded about, Y-m-d. A changed date earns fresh reminders.',
+        'type' => 'varchar',
+        'length' => 10,
+        'not null' => TRUE,
+      ),
+      'days' => array(
+        'description' => 'Days from expiry: negative before, positive after.',
+        'type' => 'int',
+        'not null' => TRUE,
+      ),
+      'uid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'mail' => array(
+        'type' => 'varchar',
+        'length' => 254,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'outcome' => array(
+        'description' => 'sent, postal, suppressed, no_account or failed.',
+        'type' => 'varchar',
+        'length' => 16,
+        'not null' => TRUE,
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('id'),
+    'unique keys' => array(
+      'mid_expiry_days' => array('mid', 'expiry', 'days'),
+    ),
+    'indexes' => array(
+      'created' => array('created'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function membership_entity_reminder_uninstall() {
+  config('membership_entity_reminder.settings')->delete();
+}

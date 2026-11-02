@@ -78,6 +78,16 @@ function _membership_entity_term_settings_form(&$form, &$form_state, $data) {
     ),
   );
 
+  $form['membership_settings']['end_of_day'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Terms end at the end of the day'),
+    '#default_value' => !empty($data['end_of_day']),
+    '#description' => t('Off: a term ends at the moment it started, so a term ending 9 November stops at the start of that day. On: the end date is the last day of cover and the term runs to 23:59:59 on it, which is what members expect from "expires on 9 November". Saving with this on also moves every existing term of this type to 23:59:59 on its end date (on a fixed renewal date, the last day of cover). Turning it off does not move them back.'),
+  );
+  if (!module_exists('membership_entity_type')) {
+    $form['actions']['submit']['#submit'][] = 'membership_entity_term_settings_end_of_day_submit';
+  }
+
   $form['#validate'][] = '_membership_entity_term_settings_fixed_renewal_validate';
 
   // Which view draws the term ledger on a membership page. Offered as a setting

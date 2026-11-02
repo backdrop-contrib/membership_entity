@@ -1,0 +1,16 @@
+{
+    "_config_name": "membership_entity_reminder.settings",
+    "enabled": false,
+    "start_date": "",
+    "types": [],
+    "days_before": [30, 7, 1],
+    "days_after": [14],
+    "send_hour": 8,
+    "from": "",
+    "before_subject": "Your [site:name] membership expires on [membership-reminder:expiry-date]",
+    "before_body": "Dear [membership-reminder:member-name],\n\nThis is a reminder that your [site:name] membership, number [membership-reminder:member-id], expires on [membership-reminder:expiry-date].\n\nTo renew, log in and go to:\n[membership-reminder:renew-url]\n\nIf you have already renewed, please ignore this message.\n\n[site:name]",
+    "after_subject": "Your [site:name] membership has expired",
+    "after_body": "Dear [membership-reminder:member-name],\n\nYour [site:name] membership, number [membership-reminder:member-id], expired on [membership-reminder:expiry-date].\n\nYou can still renew: log in and go to:\n[membership-reminder:renew-url]\n\nIf you have already renewed, please ignore this message.\n\n[site:name]",
+    "summary": false,
+    "summary_to": ""
+}

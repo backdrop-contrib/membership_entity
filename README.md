@@ -35,6 +35,9 @@ Enable only what the site needs.
   Term.
 - **Membership Entity Postal Members** — members with no e-mail address. Their
   account gets an undeliverable address and no mail is sent to it.
+- **Membership Entity Renewal Reminders** — e-mails members a set number of
+  days before and after their membership expires, with wording you edit, and
+  an optional daily summary for the membership secretary. Needs Term.
 - **Membership Entity Ubercart** — sell memberships as Ubercart products. A
   Membership product feature joins or renews the buyer when the order is
   paid, copies a new member's address from the order into their account, and
@@ -67,6 +70,17 @@ Bugs and feature requests should be reported in
 
 Feature requests will generally be developed as the need arises. If you write
 a feature and submit a pull request it will gladly be considered.
+
+## Security
+
+The code changed in each release since 1.x-1.0.3 has been reviewed for the
+kinds of vulnerability reported in the Drupal security advisories of 7 to 28
+October 2026, most recently on 2 November 2026 for 1.x-1.2.0. Those advisories
+were for Drupal 10/11 and do not apply to Backdrop directly; the module was
+checked for the same classes of mistake.
+
+Please report security issues privately to security@backdropcms.org, not in
+the issue queue.
 
 ## Current Maintainers
 
