@@ -26,16 +26,18 @@ class MembershipEntityNumericMemberId extends MembershipEntityMemberIdAbstract {
 
     // The counter holds the last number issued. A starting number lets a site
     // leave a gap — imported members below it, members who joined here above —
-    // and never takes the counter backwards.
+    // and never takes the counter backwards. Counter and start are shared by
+    // every membership type: one sequence, the type is on the membership.
     $member_id = (int) state_get('membership_entity_next_member_id', 0);
-    if (!empty($settings['start'])) {
-      $member_id = max($member_id, (int) $settings['start'] - 1);
+    $start = (int) config_get('membership_entity.settings', 'member_id_start');
+    if ($start > 0) {
+      $member_id = max($member_id, $start - 1);
     }
 
     // Members imported with their existing numbers never advanced the counter,
     // so it can sit far below numbers in use. Carry on above the highest, not
     // into the gaps below it: those are numbers lapsed members once held.
-    $member_id = max($member_id, $this->highestInUse());
+    $member_id = max($member_id, self::highestInUse());
 
     // Belt and braces for padded and unpadded forms of the same number.
     do {
@@ -66,17 +68,14 @@ class MembershipEntityNumericMemberId extends MembershipEntityMemberIdAbstract {
       '#default_value' => !empty($settings['length']) ? $settings['length'] : 5,
     );
 
-    $highest = $this->highestInUse();
-    $last = state_get('membership_entity_next_member_id', 0);
-    $form['start'] = array(
-      '#type' => 'number',
+    // The sequence is one for the whole site, so where it starts is set once,
+    // on the global settings page, not per type.
+    $form['start_note'] = array(
+      '#type' => 'item',
       '#title' => t('Number new memberships from'),
-      '#description' => t('Optional. New memberships are numbered from here. Without it they carry on above the highest number in use, never into gaps below it. Useful after importing members, so that everyone who joined on this site is recognisable by number. The highest number in use is %highest; the last number issued here was %last. Shared by every membership type that uses site id numbers.', array(
-        '%highest' => $highest ? $highest : t('none'),
-        '%last' => $last ? $last : t('none'),
+      '#markup' => t('Every membership type using site id numbers shares one sequence. Its starting number is set on the <a href="!url">membership settings</a> page.', array(
+        '!url' => url('admin/memberships/settings'),
       )),
-      '#min' => 1,
-      '#default_value' => !empty($settings['start']) ? $settings['start'] : '',
     );
 
     return $form;
@@ -88,7 +87,7 @@ class MembershipEntityNumericMemberId extends MembershipEntityMemberIdAbstract {
    * @return int
    *   The number, or 0 where there is none.
    */
-  protected function highestInUse() {
+  public static function highestInUse() {
     return (int) db_query("SELECT MAX(CAST(member_id AS UNSIGNED)) FROM {membership_entity} WHERE member_id REGEXP '^[0-9]+$'")->fetchField();
   }
 
@@ -100,16 +99,6 @@ class MembershipEntityNumericMemberId extends MembershipEntityMemberIdAbstract {
     if ($element['length']['#value'] > $schema['fields']['member_id']['length']) {
       form_error($element['length'], t('Site id number length cannot exceed %max.', array(
         '%max' => $schema['fields']['member_id']['length'],
-      )));
-    }
-
-    // A start at or below numbers already issued would not be where new
-    // members begin, which defeats the point of choosing one.
-    $start = trim($element['start']['#value']);
-    $highest = $this->highestInUse();
-    if ($start !== '' && (int) $start <= $highest) {
-      form_error($element['start'], t('Numbers up to %highest are already in use. Choose a higher starting number, or leave it empty.', array(
-        '%highest' => $highest,
       )));
     }
   }

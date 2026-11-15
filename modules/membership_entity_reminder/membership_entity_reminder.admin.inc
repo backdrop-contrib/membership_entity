@@ -66,11 +66,27 @@ function membership_entity_reminder_settings_form($form, &$form_state) {
     );
   }
 
+  $form['sender'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Send from'),
+    '#default_value' => $config->get('sender'),
+    '#description' => t('Leave blank for the site\'s e-mail address (%site). Otherwise the address reminders come from, for example the membership secretary\'s, on the same domain as the site: mail servers check the domain, and another domain is likely to be marked as spam.', array('%site' => config_get('system.core', 'site_mail'))),
+  );
+  $form['sender_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Sender name'),
+    '#default_value' => $config->get('sender_name'),
+    '#maxlength' => 64,
+    '#description' => t('The name shown in members\' inboxes, for example %example. Leave blank for the site name (%site).', array(
+      '%example' => t('Membership Secretary'),
+      '%site' => trim(config_get('system.core', 'site_name')),
+    )),
+  );
   $form['from'] = array(
     '#type' => 'textfield',
     '#title' => t('Replies go to'),
     '#default_value' => $config->get('from'),
-    '#description' => t('For example the membership secretary. Leave empty for the site e-mail address. Reminders are always sent from the site address, which mail servers trust.'),
+    '#description' => t('Leave blank for replies to go to the "Send from" address.'),
   );
 
   $token_link = theme('token_tree_link', array(
@@ -88,11 +104,21 @@ function membership_entity_reminder_settings_form($form, &$form_state) {
       '#default_value' => $config->get($key . '_subject'),
       '#maxlength' => 255,
     );
+    // A message saved as plain text, before the editor was offered, opens as
+    // HTML paragraphs so that choosing a format keeps its layout. It goes on
+    // being sent as plain text until it is saved.
+    $format = $config->get($key . '_format');
+    $body = $config->get($key . '_body');
+    if (empty($format)) {
+      $body = _filter_autop(check_plain($body));
+    }
     $form[$key][$key . '_body'] = array(
-      '#type' => 'textarea',
+      '#type' => 'text_format',
       '#title' => t('Body'),
-      '#default_value' => $config->get($key . '_body'),
+      '#default_value' => $body,
+      '#format' => $format ? $format : NULL,
       '#rows' => 15,
+      '#description' => t('Images, such as a logo, must be on this site. The message is sent as HTML where the site\'s mail system supports it (for example Mime Mail, which also applies its own e-mail text format), and as plain text otherwise.'),
     );
   }
 
@@ -222,8 +248,18 @@ function membership_entity_reminder_settings_form_validate($form, &$form_state) 
     }
   }
 
-  if ($values['from'] !== '' && !valid_email_address(trim($values['from']))) {
-    form_set_error('from', t('%mail is not a valid e-mail address.', array('%mail' => $values['from'])));
+  foreach (array('sender', 'from') as $key) {
+    if ($values[$key] !== '' && !valid_email_address(trim($values[$key]))) {
+      form_set_error($key, t('%mail is not a valid e-mail address.', array('%mail' => $values[$key])));
+    }
+  }
+  $site_domain = backdrop_strtolower(substr(strrchr((string) config_get('system.core', 'site_mail'), '@'), 1));
+  $sender_domain = backdrop_strtolower(substr(strrchr(trim($values['sender']), '@'), 1));
+  if ($sender_domain && $site_domain && $sender_domain !== $site_domain) {
+    backdrop_set_message(t('%mail is not on the site\'s own domain (%domain). Reminders sent from it are likely to be marked as spam.', array(
+      '%mail' => trim($values['sender']),
+      '%domain' => $site_domain,
+    )), 'warning');
   }
 
   if ($values['summary'] && trim($values['summary_to']) === '') {
@@ -269,8 +305,12 @@ function membership_entity_reminder_settings_form_submit($form, &$form_state) {
   foreach (array('enabled', 'summary') as $key) {
     $config->set($key, (bool) $values[$key]);
   }
-  foreach (array('start_date', 'from', 'summary_to', 'before_subject', 'before_body', 'after_subject', 'after_body') as $key) {
+  foreach (array('start_date', 'sender', 'sender_name', 'from', 'summary_to', 'before_subject', 'after_subject') as $key) {
     $config->set($key, trim($values[$key]));
+  }
+  foreach (array('before', 'after') as $key) {
+    $config->set($key . '_body', trim($values[$key . '_body']['value']));
+    $config->set($key . '_format', $values[$key . '_body']['format']);
   }
   $config->set('days_before', $values['days_before']);
   $config->set('days_after', $values['days_after']);

@@ -631,7 +631,14 @@ function _membership_entity_hierarchy_inherited_notice(&$form, MembershipEntity 
   $parent_term = membership_entity_term_get_current($membership->pid);
   $parent = membership_entity_parent_label($membership->pid);
 
-  if ($parent_term) {
+  if ($parent_term && empty($parent_term->end)) {
+    // A lifetime term has no end date to quote.
+    $message = t('This membership is paid for by @parent, so it takes that membership’s lifetime term.', array(
+      '@parent' => $parent,
+    ));
+    $type = 'status';
+  }
+  elseif ($parent_term) {
     $message = t('This membership is paid for by @parent, so it takes that membership’s term and will run to @date. It is renewed whenever @parent is.', array(
       '@parent' => $parent,
       '@date' => format_date(strtotime($parent_term->end), 'custom', 'j F Y'),

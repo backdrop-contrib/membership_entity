@@ -89,7 +89,7 @@ class views_handler_field_membership_link extends views_handler_field_entity { /
    *   HTML for the membership link.
    */
   public function render_link(Entity $entity) { // @codingStandardsIgnoreLine, Views override compliant
-    if (entity_access($this->op, $this->entity_type, $entity)) {
+    if ($this->link_access($entity)) {
       $this->options['alter']['make_link'] = TRUE;
       $uri = entity_uri($this->entity_type, $entity);
       $this->options['alter']['path'] = $uri['path'];
@@ -100,6 +100,33 @@ class views_handler_field_membership_link extends views_handler_field_entity { /
       $text = !empty($this->options['text']) ? $this->options['text'] : $this->op;
       return $text;
     }
+  }
+
+  /**
+   * Whether the current user may follow the link, by the route's own rules.
+   *
+   * Not entity_access(): in Backdrop it accepts only create, view, update and
+   * delete, so 'edit', 'renew', 'clone' and 'export' were always refused, and
+   * none of these entity classes overrides access(), so view and delete were
+   * granted to everybody. The entity type's own access callback is what the
+   * routes use. Renew uses the renew page's check, which also knows about
+   * sub-memberships and lifetime terms.
+   *
+   * @param Entity $entity
+   *   The entity the link is for.
+   *
+   * @return bool
+   *   TRUE if the link should be shown.
+   */
+  protected function link_access(Entity $entity) {
+    if ($this->op == 'renew' && $entity instanceof MembershipEntity) {
+      return membership_entity_term_access_renew($entity);
+    }
+    $callback = isset($this->entityInfo['access callback']) ? $this->entityInfo['access callback'] : NULL;
+    if ($callback && function_exists($callback)) {
+      return (bool) $callback($this->op, $entity);
+    }
+    return entity_access($this->op, $this->entity_type, $entity);
   }
 
 }

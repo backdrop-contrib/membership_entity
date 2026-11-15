@@ -882,7 +882,10 @@ function membership_entity_term_membership_entity_view($membership, $view_mode, 
     );
   }
 
-  if ($view_mode == 'account' && membership_entity_access('renew', $membership)) {
+  // The same check as the renew page itself, so the link is not offered where
+  // the page would refuse: a sub-membership renewed by the one above it, or a
+  // lifetime term.
+  if ($view_mode == 'account' && membership_entity_term_access('renew', $membership)) {
     // Add a renew link.
     $membership->content['links']['membership_entity']['#links']['renew'] = array(
       'title' => t('Renew membership'),
@@ -1138,6 +1141,10 @@ function membership_entity_term_get_expiration_date(MembershipEntity $membership
 /**
  * Get the current term for a membership.
  *
+ * A started lifetime term (no end date) is current. Without that, a
+ * membership holding a lifetime term and a later-starting fixed term that has
+ * run out took its status from the fixed term and read as expired.
+ *
  * @param MembershipEntity|int $mid
  *   A membership object or mid.
  *
@@ -1150,7 +1157,7 @@ function membership_entity_term_get_current($mid) {
     $mid = $mid->mid;
   }
 
-  if ($id = db_query('SELECT id FROM {membership_entity_term} t WHERE mid = :mid AND (start <= :now AND end >= :now) LIMIT 1',
+  if ($id = db_query("SELECT id FROM {membership_entity_term} t WHERE mid = :mid AND start <= :now AND (end >= :now OR (end IS NULL AND term = 'lifetime')) ORDER BY end IS NULL DESC, end DESC LIMIT 1",
     array(
       ':mid' => $mid,
       ':now' => date_format_date(date_now('UTC'), 'custom', DATE_FORMAT_DATETIME),
@@ -1298,6 +1305,58 @@ function _membership_entity_term_modify_date(DateTime $date, $modifier) {
   }
 
   return $date;
+}
+
+/**
+ * Works out the term modifiers that make a term end on a given date.
+ *
+ * Lets an administrator say when a term should end instead of calculating
+ * the difference by hand. Readable modifiers (+9 months, +1 day) are used
+ * where they land exactly on the date; otherwise a single day count is.
+ * The end date keeps the start date's time of day, as a calculated one does.
+ *
+ * @param DateTime $start
+ *   The term start date, in the term's timezone.
+ * @param string $term_length
+ *   The term length, eg. '1 year'.
+ * @param string $end_date
+ *   The wanted end date, as Y-m-d.
+ *
+ * @return array|false
+ *   The modifiers, an empty array if none are needed, or FALSE if the end
+ *   date is not after the start date.
+ */
+function membership_entity_term_modifiers_for_end_date(DateTime $start, $term_length, $end_date) {
+  $target = new DateTime($end_date . ' ' . $start->format('H:i:s'), $start->getTimezone());
+  if ($target <= $start) {
+    return FALSE;
+  }
+
+  $natural = _membership_entity_term_modify_date(clone $start, $term_length);
+  if ($natural == $target) {
+    return array();
+  }
+
+  $diff = $natural->diff($target);
+  $sign = $diff->invert ? '-' : '+';
+  $modifiers = array();
+  foreach (array('y' => 'year', 'm' => 'month', 'd' => 'day') as $part => $unit) {
+    if ($diff->$part) {
+      $modifiers[] = $sign . $diff->$part . ' ' . $unit . ($diff->$part > 1 ? 's' : '');
+    }
+  }
+
+  // Month arithmetic is not reversible at the end of a month, so check the
+  // modifiers really reach the date before using them.
+  $check = clone $natural;
+  foreach ($modifiers as $modifier) {
+    $check = _membership_entity_term_modify_date($check, $modifier);
+  }
+  if ($check != $target) {
+    $modifiers = array($sign . $diff->days . ' day' . ($diff->days > 1 ? 's' : ''));
+  }
+
+  return $modifiers;
 }
 
 /**

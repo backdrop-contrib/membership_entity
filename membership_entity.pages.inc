@@ -257,6 +257,30 @@ function membership_entity_global_settings_form($form, &$form_state) {
     )),
   );
 
+  // One sequence for the whole site. The membership type is recorded on each
+  // membership, so the number does not need to carry it, and per-type ranges
+  // only run into each other.
+  $highest = MembershipEntityNumericMemberId::highestInUse();
+  $last = state_get('membership_entity_next_member_id', 0);
+  $form['numbers'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Membership numbers'),
+    '#description' => t('For membership types using the %format site id number format. All of them share one sequence.', array(
+      '%format' => t('Numeric ID'),
+    )),
+  );
+
+  $form['numbers']['member_id_start'] = array(
+    '#type' => 'number',
+    '#title' => t('Number new memberships from'),
+    '#description' => t('Optional. New memberships are numbered from here. Without it they carry on above the highest number in use, never into gaps below it. Useful after importing members, so that everyone who joined on this site is recognisable by number. Once numbers above it have been issued, new ones carry on above those. The highest number in use is %highest; the last number issued here was %last.', array(
+      '%highest' => $highest ? $highest : t('none'),
+      '%last' => $last ? $last : t('none'),
+    )),
+    '#min' => 1,
+    '#default_value' => $config->get('member_id_start') ? $config->get('member_id_start') : '',
+  );
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
@@ -286,6 +310,18 @@ function membership_entity_global_settings_form_validate($form, &$form_state) {
       form_set_error($key, t('%path would redirect to itself.', array('%path' => $path)));
     }
   }
+
+  // A new start at or below numbers already issued would not be where new
+  // members begin, which defeats the point of choosing one. An unchanged start
+  // is fine: once the sequence has passed it, it has done its job.
+  $start = trim($form_state['values']['member_id_start']);
+  $current = (string) config_get('membership_entity.settings', 'member_id_start');
+  $highest = MembershipEntityNumericMemberId::highestInUse();
+  if ($start !== '' && $start !== $current && (int) $start <= $highest) {
+    form_set_error('member_id_start', t('Numbers up to %highest are already in use. Choose a higher starting number, or leave it empty.', array(
+      '%highest' => $highest,
+    )));
+  }
 }
 
 /**
@@ -297,6 +333,7 @@ function membership_entity_global_settings_form_submit($form, &$form_state) {
   config('membership_entity.settings')
     ->set('join_path', trim($form_state['values']['join_path']))
     ->set('renew_path', trim($form_state['values']['renew_path']))
+    ->set('member_id_start', trim($form_state['values']['member_id_start']))
     ->save();
 
   backdrop_set_message(t('The configuration options have been saved.'));

@@ -419,8 +419,31 @@ function membership_entity_reminder_mail($key, &$message, $params) {
         'user' => $params['account'],
         'membership-reminder' => $params,
       );
+      // Only From changes: Sender and Return-Path stay the site address, the
+      // envelope mail servers check, so a sender on the same domain passes
+      // SPF and DMARC just as the site address does.
+      $sender = $config->get('sender');
+      $sender_name = $config->get('sender_name');
+      if ($sender || $sender_name) {
+        // No line breaks in a header value, or it could add headers.
+        $name = trim(preg_replace('/[\r\n]+/', ' ', $sender_name ? $sender_name : config_get('system.core', 'site_name')));
+        $mail = $sender ? $sender : config_get('system.core', 'site_mail');
+        $message['from'] = $message['headers']['From'] = $name === ''
+          ? $mail
+          : '"' . addslashes(mime_header_encode($name)) . '" <' . $mail . '>';
+      }
       $message['subject'] = token_replace($config->get($key . '_subject'), $data, $options);
-      $message['body'][] = token_replace($config->get($key . '_body'), $data, $options);
+      $format = $config->get($key . '_format');
+      if ($format) {
+        // Tokens first, escaped, then the format: filtering first would strip
+        // a token used as a link, since "[membership-reminder:renew-url]"
+        // reads as an unknown protocol.
+        $body = token_replace($config->get($key . '_body'), $data, array('sanitize' => TRUE) + $options);
+        $message['body'][] = check_markup($body, $format, $message['language']->langcode);
+      }
+      else {
+        $message['body'][] = token_replace($config->get($key . '_body'), $data, $options);
+      }
       break;
 
     case 'summary':

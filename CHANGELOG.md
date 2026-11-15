@@ -1,5 +1,23 @@
 # Changelog - Membership Entity
 
+## 1.x-1.2.1 (2026-11-15)
+
+Git tag: `1.x-1.2.1`.
+
+### Added
+- Renewal Reminders: the before and after message bodies use a text format and the site's editor, so they can carry images such as a logo. Sent as HTML where the mail system supports it (e.g. Mime Mail), as plain text otherwise. Existing plain-text messages keep their layout and are sent as before until saved.
+- Renewal Reminders: "Send from" and "Sender name" settings, so reminders can come from e.g. the membership secretary rather than the site address. Blank keeps the site address and the site name; a warning is shown for an address on another domain. The daily summary still comes from the site address.
+- Term: "Or set the end date" in Term Modifiers. Enter the date a term should end and the modifiers to reach it (e.g. +9 months, +1 day) are calculated on save, replacing any listed. For ending a lifetime term on a given day, or matching an associate's expiry to the main member's.
+
+### Changed
+- "Number new memberships from" moves from each membership type to Memberships > Settings. Every type using Numeric ID shares one sequence; the counter always was shared, so a higher start on one type (e.g. 20000) pulled every other type's new numbers up to it. Update 1005 moves an existing start across (the lowest, where types had different ones). Changing it to a number at or below one already in use is refused; leaving it unchanged is accepted.
+
+### Fixed
+- Term: a started lifetime term now counts as the current term. A membership with a lifetime term and a later fixed term that had run out read as Expired.
+- Term: the "Renew membership" link on an account page is only shown where the renew page would allow it; it was offered on sub-memberships renewed by the membership above, which then gave Access denied.
+- Hierarchy: the sub-member notice no longer shows a 1970 date when the parent holds a lifetime term.
+- Views links (Edit, Delete, Renew and the type links): access now comes from the entity type's own access callback. Edit, Renew, Clone and Export links never appeared (Backdrop's `entity_access()` refuses those operations), and View/Delete links were shown to everyone (the pages themselves were always protected). The membership terms table now shows its Edit link to administrators.
+
 ## 1.x-1.2.0 (2026-11-02)
 
 Git tag: `1.x-1.2.0`.

@@ -715,6 +715,21 @@ function membership_entity_term_form(&$form, &$form_state) {
     ),
   );
 
+  // An end date to aim for, turned into modifiers on save. Saves working out
+  // the difference by hand when a term must end on a given day: ending a
+  // lifetime term, or matching an associate's expiry to the main member's.
+  $form['membership_term']['modifiers']['end_date'] = array(
+    '#type' => 'date_select',
+    '#title' => t('Or set the end date'),
+    '#description' => t('Optional. The term will end on this date. On save, the modifiers needed to reach it from the start date and term length are calculated, and they replace any modifiers listed above.'),
+    '#date_format' => 'Y-m-d',
+    '#date_timezone' => $timezone,
+    '#date_text_parts' => array('year'),
+    '#date_year_range' => '-10:+10',
+    '#date_label_position' => 'above',
+    '#default_value' => '',
+  );
+
   // Add field UI items.
   field_attach_form('membership_entity_term', $term, $form['membership_term'], $form_state);
   $form['membership_term']['#pre_render'][] = '_membership_entity_extra_fields_pre_render';
@@ -730,6 +745,7 @@ function membership_entity_term_form(&$form, &$form_state) {
  */
 function membership_entity_term_form_validate($form, &$form_state) {
   $values = &$form_state['values']['membership_term'];
+  $end_date = !empty($values['modifiers']['end_date']) ? $values['modifiers']['end_date'] : '';
 
   // Prepare available term modifiers.
   if (empty($values['modifiers']['list']) || $values['term'] == 'lifetime') {
@@ -744,6 +760,17 @@ function membership_entity_term_form_validate($form, &$form_state) {
   $start = new BackdropDateTime($values['start'], $form['membership_term']['start']['#date_timezone']);
   $start->setTimezone(new DateTimeZone($values['timezone']));
   form_set_value($form['membership_term']['start'], date_format_date($start, 'custom', DATE_FORMAT_DATETIME), $form_state);
+
+  // Replace the modifiers with those reaching the chosen end date.
+  if ($end_date !== '' && $values['term'] != 'lifetime' && preg_match(MEMBERSHIP_ENTITY_TERM_LENGTH_REGEX, $values['term'])) {
+    $modifiers = membership_entity_term_modifiers_for_end_date($start, $values['term'], substr($end_date, 0, 10));
+    if ($modifiers === FALSE) {
+      form_set_error('membership_term][modifiers][end_date', t('The end date must be after the term start date.'));
+    }
+    else {
+      form_set_value($form['membership_term']['modifiers'], $modifiers, $form_state);
+    }
+  }
 
   _membership_entity_form_field_validate('membership_entity_term', $form['membership_term'], $form_state);
 }

@@ -332,6 +332,59 @@ function membership_entity_update_1004() {
 }
 
 /**
+ * Move "Number new memberships from" from each type to the global settings.
+ *
+ * The counter was always shared, so a higher start on one type dragged every
+ * type's numbers up to it. The lowest start is kept, as the one the main
+ * sequence was meant to follow; the others are removed.
+ */
+function membership_entity_update_1005() {
+  $config = config('membership_entity.settings');
+  $starts = array();
+
+  if (module_exists('membership_entity_type')) {
+    foreach (db_query('SELECT id, type, data FROM {membership_entity_type}') as $row) {
+      $data = unserialize($row->data);
+      if (isset($data['member_id_settings']['start'])) {
+        if ($data['member_id_settings']['start'] !== '') {
+          $starts[$row->type] = (int) $data['member_id_settings']['start'];
+        }
+        unset($data['member_id_settings']['start']);
+        db_update('membership_entity_type')
+          ->fields(array('data' => serialize($data)))
+          ->condition('id', $row->id)
+          ->execute();
+      }
+    }
+  }
+
+  $data = $config->get('membership_entity_settings');
+  if (isset($data['member_id_settings']['start'])) {
+    if ($data['member_id_settings']['start'] !== '') {
+      $starts['membership'] = (int) $data['member_id_settings']['start'];
+    }
+    unset($data['member_id_settings']['start']);
+    $config->set('membership_entity_settings', $data);
+  }
+
+  $start = $starts ? min($starts) : '';
+  if ($config->get('member_id_start') === NULL || $config->get('member_id_start') === '') {
+    $config->set('member_id_start', $start ? (string) $start : '');
+  }
+  $config->save();
+
+  if (count($starts) > 1) {
+    return t('Membership types had different starting numbers (@list). All types now share one sequence starting from @start, set at Memberships > Settings.', array(
+      '@list' => implode(', ', array_map(function ($type, $n) {
+        return "$type: $n";
+      }, array_keys($starts), $starts)),
+      '@start' => $start,
+    ));
+  }
+  return $start ? t('Membership numbers now start from @start for every type, set at Memberships > Settings.', array('@start' => $start)) : NULL;
+}
+
+/**
  * Implements hook_uninstall().
  */
 function membership_entity_uninstall() {

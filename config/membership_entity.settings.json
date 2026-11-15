@@ -3,5 +3,6 @@
     "membership_entity_required": false,
     "membership_entity_settings": [],
     "join_path": "",
-    "renew_path": ""
+    "renew_path": "",
+    "member_id_start": ""
 }
