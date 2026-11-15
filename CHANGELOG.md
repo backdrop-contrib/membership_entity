@@ -1,5 +1,7 @@
 # Changelog - Membership Entity
 
+## 1.x-1.2.2 (unreleased)
+
 ## 1.x-1.2.1 (2026-11-15)
 
 Git tag: `1.x-1.2.1`.
