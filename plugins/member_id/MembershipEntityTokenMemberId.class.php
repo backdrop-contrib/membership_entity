@@ -47,26 +47,74 @@ class MembershipEntityTokenMemberId extends MembershipEntityMemberIdAbstract {
 
     // Optionally add a unique suffix.
     if (!empty($settings['suffix'])) {
-      $length = $settings['length'];
-      $suffix = 1;
-
-      // Find the most recent matching member id.
-      $query = db_select('membership_entity', 'm');
-      $query->addExpression('MAX(member_id)', 'member_id');
-      $id = $query->condition('member_id', db_like($member_id) . '%', 'LIKE')
-        ->execute()
-        ->fetchField();
-
-      // If a member id already exists increment suffix by 1.
-      if (!empty($id)) {
-        $id = (int) str_replace($member_id, '', $id);
-        $suffix = $id + 1;
-      }
-
-      $member_id .= str_pad($suffix, $length, '0', STR_PAD_LEFT);
+      $member_id = $this->nextWithSuffix($member_id, $settings['length']);
     }
 
     return $member_id;
+  }
+
+  /**
+   * Adds the next free numeric suffix to a prefix.
+   *
+   * The number is only stored when the membership is saved, after this has
+   * returned, so reading the highest one in use is not enough: two people
+   * joining at once would both read it and draw the same number. As in the
+   * numeric plugin, the last suffix issued for each prefix is recorded under
+   * the lock, and the next caller carries on above it.
+   *
+   * @param string $prefix
+   *   The member id built from the pattern.
+   * @param int $length
+   *   The minimum number of digits in the suffix.
+   *
+   * @return string
+   *   The prefix followed by the suffix.
+   */
+  protected function nextWithSuffix($prefix, $length) {
+    // The same lock as the numeric plugin: both draw from the one unique
+    // member_id column.
+    while (!lock_acquire('membership_entity_member_id')) {
+      lock_wait('membership_entity_member_id');
+    }
+
+    $issued = state_get('membership_entity_token_member_id_last', array());
+    $last = isset($issued[$prefix]) ? (int) $issued[$prefix] : 0;
+    $last = max($last, $this->highestSuffixInUse($prefix));
+
+    do {
+      $last++;
+      $candidate = $prefix . str_pad($last, $length, '0', STR_PAD_LEFT);
+      $taken = db_query('SELECT 1 FROM {membership_entity} WHERE member_id = :id', array(':id' => $candidate))->fetchField();
+    } while ($taken);
+
+    $issued[$prefix] = $last;
+    state_set('membership_entity_token_member_id_last', $issued);
+    lock_release('membership_entity_member_id');
+
+    return $candidate;
+  }
+
+  /**
+   * The highest suffix in use after a prefix, as a number.
+   *
+   * Only ids that are the prefix followed by digits count. Matching the prefix
+   * alone also matched other prefixes that start with it ("GB001" for "G"),
+   * whose remainder read as 0; and the highest string is not the highest
+   * number once a suffix outgrows its padding ("G99999" sorts above "G100000").
+   *
+   * @param string $prefix
+   *   The member id built from the pattern.
+   *
+   * @return int
+   *   The highest suffix, or 0 if none is in use.
+   */
+  protected function highestSuffixInUse($prefix) {
+    $start = backdrop_strlen($prefix) + 1;
+    return (int) db_query("SELECT MAX(CAST(SUBSTRING(member_id, :start) AS UNSIGNED)) FROM {membership_entity} WHERE member_id LIKE :prefix AND SUBSTRING(member_id, :start2) REGEXP '^[0-9]+$'", array(
+      ':start' => $start,
+      ':start2' => $start,
+      ':prefix' => db_like($prefix) . '%',
+    ))->fetchField();
   }
 
   /**

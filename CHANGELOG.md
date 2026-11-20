@@ -4,6 +4,8 @@
 
 ### Fixed
 - Member numbers: where two membership types use the same numbering plugin with different settings (e.g. token patterns "G" and "S"), a membership numbered after another type's in the same request took the first type's pattern. Seen in a script creating one membership of each type; an import or a checkout creating two types at once would do the same.
+- Token ID suffix: two people joining at once could draw the same number, and the second save failed. The last suffix issued is now recorded per prefix under the same lock as Numeric ID, so a number is never handed out twice, and a deleted membership's number is not reused (as Numeric ID).
+- Token ID suffix: the next number is read from ids that are the prefix followed by digits only. Another type whose prefix began with this one's ("GB" after "G") reset the count to 1, and a suffix that outgrew its padding ("G100000") was not seen as the highest.
 
 ## 1.x-1.2.1 (2026-11-15)
 
