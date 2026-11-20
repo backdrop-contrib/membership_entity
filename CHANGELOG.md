@@ -2,6 +2,9 @@
 
 ## 1.x-1.2.2 (unreleased)
 
+### Fixed
+- Member numbers: where two membership types use the same numbering plugin with different settings (e.g. token patterns "G" and "S"), a membership numbered after another type's in the same request took the first type's pattern. Seen in a script creating one membership of each type; an import or a checkout creating two types at once would do the same.
+
 ## 1.x-1.2.1 (2026-11-15)
 
 Git tag: `1.x-1.2.1`.

@@ -1118,25 +1118,36 @@ function membership_entity_get_member_id($id = NULL) {
 /**
  * Helper to retrieve a member id plugin instance.
  *
+ * Instances are kept for the request, one per plugin and settings. Each
+ * membership type has its own settings for the same plugin (a token pattern,
+ * a length), so an instance keyed on the plugin alone handed the first type's
+ * settings to every other type numbered in the same request.
+ *
+ * @param string $id
+ *   The member id plugin.
+ * @param array $settings
+ *   The plugin settings, usually a membership type's member_id_settings.
+ *
  * @return MembershipEntityMemberIdInterface
  *   MembershipEntityMemberIDInterface object instance.
  */
 function _membership_entity_member_id_get_instance($id, $settings = array()) {
   $instances = &backdrop_static(__FUNCTION__);
+  $key = $id . ':' . md5(serialize($settings));
 
-  if (!isset($instances[$id])) {
+  if (!isset($instances[$key])) {
     $plugin = membership_entity_get_member_id($id);
     $class = membership_entity_get_plugin_class($plugin, 'class');
     $class = class_exists($class) ? $class : 'MembershipEntityMemberIdBroken';
-    $instances[$id] = new $class($settings);
+    $instances[$key] = new $class($settings);
 
     // Check that plugin has implemented MembershipEntityMemberIdInterface.
-    if (!in_array('MembershipEntityMemberIdInterface', class_implements($instances[$id]))) {
-      $instances[$id] = new MembershipEntityMemberIdBroken($settings);
+    if (!in_array('MembershipEntityMemberIdInterface', class_implements($instances[$key]))) {
+      $instances[$key] = new MembershipEntityMemberIdBroken($settings);
     }
   }
 
-  return $instances[$id];
+  return $instances[$key];
 }
 
 /**
