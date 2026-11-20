@@ -2,7 +2,12 @@
 
 ## 1.x-1.2.2 (unreleased)
 
+### Added
+- Term: "When a term ends" on each membership type replaces the "Terms end at the end of the day" switch, with a third choice: at the end of the day before the anniversary, the usual subscription year (taken out on 1 April, a year ends at 23:59:59 on 31 March). A renewal carrying on from the last term still runs a full term; a year from 29 February ends on 28 February. Types saved before keep their behaviour (the old switch decides until the type is saved again).
+
 ### Fixed
+- Term: the end of day is now the end of the day where dates are shown (the type's timezone setting), not in UTC. In British summer time a term "ending 9 November" ran to 00:59 on the 10th.
+- Term: the catch-up that moves existing terms to the end of their last day works in that timezone too, and keeps the date of ends stored at 23:59:59 UTC by earlier releases. It never moves a date, so choosing "the day before" applies to terms saved from then on and leaves existing members the cover they were given.
 - Member numbers: where two membership types use the same numbering plugin with different settings (e.g. token patterns "G" and "S"), a membership numbered after another type's in the same request took the first type's pattern. Seen in a script creating one membership of each type; an import or a checkout creating two types at once would do the same.
 - Token ID suffix: two people joining at once could draw the same number, and the second save failed. The last suffix issued is now recorded per prefix under the same lock as Numeric ID, so a number is never handed out twice, and a deleted membership's number is not reused (as Numeric ID).
 - Token ID suffix: the next number is read from ids that are the prefix followed by digits only. Another type whose prefix began with this one's ("GB" after "G") reset the count to 1, and a suffix that outgrew its padding ("G100000") was not seen as the highest.

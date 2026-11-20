@@ -379,12 +379,63 @@ function membership_entity_term_membership_entity_bundle_settings_defaults() {
     // every existing site has.
     'fixed_renewal_date' => '',
     // FALSE keeps the end as the instant cover stops, which is the behaviour
-    // every existing site has.
+    // every existing site has. Superseded by term_ends, and kept in step with
+    // it, for code that still reads it.
     'end_of_day' => FALSE,
+    // When a term ends: 'start_time', 'end_of_day' or 'day_before'. Empty
+    // means a type saved before the setting existed: end_of_day decides, see
+    // membership_entity_term_ends().
+    'term_ends' => '',
     // Which view renders the term ledger on a membership page, as
     // "view_name:display_id".
     'term_list_view' => 'membership_entity_terms:term_list',
   );
+}
+
+/**
+ * When a membership type's terms end.
+ *
+ * - start_time: at the time of day the term started, on its anniversary.
+ *   Taken out at 14:30 on 1 April, a year ends at 14:30 on 1 April.
+ * - end_of_day: at 23:59:59 on the anniversary. 1 April ends 1 April.
+ * - day_before: at 23:59:59 on the day before the anniversary, the usual
+ *   subscription year. 1 April ends 31 March.
+ *
+ * A type saved before the choice existed has only the end_of_day switch, and
+ * keeps the behaviour it had.
+ *
+ * @param array $settings
+ *   The type's bundle settings.
+ *
+ * @return string
+ *   'start_time', 'end_of_day' or 'day_before'.
+ */
+function membership_entity_term_ends(array $settings) {
+  if (!empty($settings['term_ends']) && in_array($settings['term_ends'], array('start_time', 'end_of_day', 'day_before'), TRUE)) {
+    return $settings['term_ends'];
+  }
+  return empty($settings['end_of_day']) ? 'start_time' : 'end_of_day';
+}
+
+/**
+ * The timezone whose days decide where a term's last day ends.
+ *
+ * Terms are stored in UTC, but "ends on 31 March" means 31 March where the
+ * dates are shown: the timezone the type's term form uses. Working in UTC put
+ * the end of the day at 00:59 the next morning in British summer time.
+ *
+ * @param array $settings
+ *   The type's bundle settings.
+ * @param object $term
+ *   (optional) The term, for a type whose terms carry their own timezone.
+ *
+ * @return DateTimeZone
+ *   The timezone.
+ */
+function membership_entity_term_local_timezone(array $settings, $term = NULL) {
+  $handling = isset($settings['tz_handling']) ? $settings['tz_handling'] : 'site';
+  $zone = date_get_timezone($handling, ($term && !empty($term->timezone)) ? $term->timezone : '');
+  return new DateTimeZone($zone ? $zone : 'UTC');
 }
 
 /**
@@ -413,15 +464,64 @@ function membership_entity_term_membership_entity_term_end_date_alter(&$end, $te
     _membership_entity_term_snap_to_renewal($end, $term, $boundary);
   }
 
-  // The date a member is shown becomes their last day, and cover runs to the
-  // end of it. A snapped renewal is the midnight after the last day of cover,
-  // so it steps back onto that day first.
-  if (!empty($settings['end_of_day'])) {
-    if ($boundary) {
-      $end->modify('-1 day');
-    }
-    $end->setTime(23, 59, 59);
+  $ends = membership_entity_term_ends($settings);
+  if ($ends == 'start_time') {
+    return;
   }
+
+  // From here on the day is the local one: see
+  // membership_entity_term_local_timezone().
+  $stored = $end->getTimezone();
+  $local = membership_entity_term_local_timezone($settings, $term);
+  $end->setTimezone($local);
+
+  if ($boundary) {
+    // A snapped renewal is the midnight after the last day of cover, so it
+    // steps back onto that day; both end of day choices then end on it.
+    $end->modify('-1 day');
+  }
+  elseif ($ends == 'day_before' && _membership_entity_term_ends_on_anniversary($end, $term, $local)) {
+    $end->modify('-1 day');
+  }
+  // The date a member is shown becomes their last day, and cover runs to the
+  // end of it.
+  $end->setTime(23, 59, 59);
+  $end->setTimezone($stored);
+}
+
+/**
+ * Whether a term's calculated end falls on its plain anniversary.
+ *
+ * The day before the anniversary is the last day of cover, with two
+ * exceptions where the end is already that day, so must not move back again:
+ * - A renewal carrying on from the last term starts at the instant that term
+ *   ended, 23:59:59 on its last day; its cover really begins the next day, so
+ *   its anniversary is already the last day of the new term.
+ * - Where a month or year lands on a day the month lacks (29 February plus a
+ *   year), _membership_entity_term_modify_date() has already stepped back to
+ *   the month's last day.
+ *
+ * @param DateTime $end
+ *   The calculated end, in the local timezone.
+ * @param object $term
+ *   The term.
+ * @param DateTimeZone $local
+ *   The local timezone.
+ *
+ * @return bool
+ *   TRUE when the end should step back a day.
+ */
+function _membership_entity_term_ends_on_anniversary(DateTime $end, $term, DateTimeZone $local) {
+  $start = new DateTime($term->start, new DateTimeZone(empty($term->timezone) ? 'UTC' : $term->timezone));
+  $start->setTimezone($local);
+  if ($start->format('H:i:s') == '23:59:59') {
+    return FALSE;
+  }
+  $plain = clone $start;
+  foreach (array_merge(array($term->term), (array) $term->modifiers) as $modifier) {
+    $plain->modify($modifier);
+  }
+  return $plain->format('Y-m-d') == $end->format('Y-m-d');
 }
 
 /**
@@ -599,11 +699,12 @@ function membership_entity_term_membership_entity_type_update($info) {
 /**
  * Moves existing terms of a type to 23:59:59 on their end date.
  *
- * Terms saved after "Terms end at the end of the day" is turned on get the new
- * end time as they are calculated; this brings the ones already stored into
- * line, so a member is not cut off a day early because their term predates the
+ * Terms saved after either end of day choice is made get the new end as they
+ * are calculated; this brings the ones already stored into line, so a member is
+ * not cut off part way through their last day because their term predates the
  * setting. Run on every save of the type: it only touches terms not already
- * ending at 23:59:59, so it changes nothing the second time.
+ * ending at 23:59:59 local time, so it changes nothing the second time. Ends
+ * stored at 23:59:59 UTC by earlier releases keep their date.
  *
  * Only the time moves, never the date - except on a fixed renewal date, whose
  * stored end is the midnight after the last day of cover and steps back onto
@@ -617,17 +718,47 @@ function membership_entity_term_membership_entity_type_update($info) {
  */
 function membership_entity_term_apply_end_of_day($bundle) {
   $settings = membership_entity_get_bundle_settings($bundle);
-  if (empty($settings['end_of_day'])) {
+  if (membership_entity_term_ends($settings) == 'start_time') {
     return 0;
   }
 
+  // In PHP, not SQL, because the day is the local one, and stored ends are
+  // UTC. Never moves a date, only the time on it: switching a type to "the
+  // day before" changes terms saved from then on, and leaves existing members
+  // the cover they were given.
   $args = array(':type' => $bundle);
-  $mids = "mid IN (SELECT mid FROM {membership_entity} WHERE type = :type) AND end IS NOT NULL AND TIME(end) <> '23:59:59'";
+  $utc = new DateTimeZone('UTC');
+  $local = membership_entity_term_local_timezone($settings);
+  $boundary = !empty($settings['fixed_renewal_date']);
+  $rows = db_query("SELECT id, end FROM {membership_entity_term} WHERE mid IN (SELECT mid FROM {membership_entity} WHERE type = :type) AND end IS NOT NULL", $args);
   $count = 0;
-  if (!empty($settings['fixed_renewal_date'])) {
-    $count += db_query("UPDATE {membership_entity_term} SET end = CONCAT(DATE_SUB(DATE(end), INTERVAL 1 DAY), ' 23:59:59') WHERE $mids AND TIME(end) = '00:00:00'", $args, array('return' => Database::RETURN_AFFECTED));
+  foreach ($rows as $row) {
+    $end = new DateTime($row->end, $utc);
+    if ($end->format('H:i:s') == '23:59:59') {
+      // Already the end of a day in UTC: what this setting stored before it
+      // worked in local time, or a UTC site. That date is the last day.
+      $day = $end->format('Y-m-d');
+    }
+    elseif ($boundary && $end->format('H:i:s') == '00:00:00') {
+      // A snapped renewal: the midnight after the last day of cover.
+      $end->modify('-1 day');
+      $day = $end->format('Y-m-d');
+    }
+    else {
+      $end->setTimezone($local);
+      if ($end->format('H:i:s') == '23:59:59') {
+        continue;
+      }
+      $day = $end->format('Y-m-d');
+    }
+    $target = new DateTime($day . ' 23:59:59', $local);
+    $target->setTimezone($utc);
+    $value = $target->format('Y-m-d H:i:s');
+    if ($value != $row->end) {
+      db_update('membership_entity_term')->fields(array('end' => $value))->condition('id', $row->id)->execute();
+      $count++;
+    }
   }
-  $count += db_query("UPDATE {membership_entity_term} SET end = CONCAT(DATE(end), ' 23:59:59') WHERE $mids", $args, array('return' => Database::RETURN_AFFECTED));
 
   if ($count) {
     entity_get_controller('membership_entity_term')->resetCache();

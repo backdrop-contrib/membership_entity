@@ -78,12 +78,23 @@ function _membership_entity_term_settings_form(&$form, &$form_state, $data) {
     ),
   );
 
-  $form['membership_settings']['end_of_day'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Terms end at the end of the day'),
-    '#default_value' => !empty($data['end_of_day']),
-    '#description' => t('Off: a term ends at the moment it started, so a term ending 9 November stops at the start of that day. On: the end date is the last day of cover and the term runs to 23:59:59 on it, which is what members expect from "expires on 9 November". Saving with this on also moves every existing term of this type to 23:59:59 on its end date (on a fixed renewal date, the last day of cover). Turning it off does not move them back.'),
+  $form['membership_settings']['term_ends'] = array(
+    '#type' => 'radios',
+    '#title' => t('When a term ends'),
+    '#options' => array(
+      'start_time' => t('At the time of day it started: taken out at 14:30 on 1 April, a year ends at 14:30 on 1 April'),
+      'end_of_day' => t('At the end of the anniversary: 1 April ends at 23:59:59 on 1 April'),
+      'day_before' => t('At the end of the day before the anniversary: 1 April ends at 23:59:59 on 31 March (the usual subscription year)'),
+    ),
+    '#default_value' => membership_entity_term_ends($data),
+    '#description' => t('Days are those of the timezone below. With either end of day choice, a renewal that carries on from the last term still runs a full term, and a year from 29 February ends on 28 February. On a fixed renewal date both end of day choices end on the last day of cover. Saving with an end of day choice also moves every existing term of this type to 23:59:59 on its end date; it never moves a date, so switching to "the day before" leaves existing members the cover they were given. Switching back to the time it started does not move anything.'),
   );
+  // Kept in step for code that still reads the old switch.
+  $form['membership_settings']['end_of_day'] = array(
+    '#type' => 'value',
+    '#value' => membership_entity_term_ends($data) != 'start_time',
+  );
+  $form['#validate'][] = '_membership_entity_term_settings_term_ends_validate';
   if (!module_exists('membership_entity_type')) {
     $form['actions']['submit']['#submit'][] = 'membership_entity_term_settings_end_of_day_submit';
   }
@@ -406,6 +417,15 @@ function _membership_entity_term_settings_fixed_renewal_validate($form, &$form_s
   }
 
   $values['fixed_renewal_date'] = $day . '-' . $month;
+}
+
+/**
+ * Validation handler: keeps the old end_of_day switch in step with term_ends.
+ *
+ * @see membership_entity_term_ends()
+ */
+function _membership_entity_term_settings_term_ends_validate($form, &$form_state) {
+  $form_state['values']['end_of_day'] = isset($form_state['values']['term_ends']) && $form_state['values']['term_ends'] != 'start_time';
 }
 
 /**
