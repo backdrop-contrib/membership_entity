@@ -34,7 +34,7 @@ class MembershipEntityTypeController extends EntityPlusControllerExportable {
   /**
    * {@inheritdoc}
    */
-  public function save($type, DatabaseTransaction $transaction = NULL) {
+  public function save($type, ?DatabaseTransaction $transaction = NULL) {
     $status = parent::save($type, $transaction);
 
     // Clear field info and menu caches.

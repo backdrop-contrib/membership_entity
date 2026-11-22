@@ -123,7 +123,7 @@ class MembershipEntityController extends EntityPlusController {
   /**
    * Overrides EntityPlusController::save().
    */
-  public function save($membership, DatabaseTransaction $transaction = NULL) {
+  public function save($membership, ?DatabaseTransaction $transaction = NULL) {
     $transaction = isset($transaction) ? $transaction : db_transaction();
     $data = membership_entity_get_bundle_settings($membership->type);
     $original_status = NULL;
@@ -228,7 +228,7 @@ class MembershipEntityController extends EntityPlusController {
   /**
    * Overrides EntityPlusController::delete().
    */
-  public function delete($mids, DatabaseTransaction $transaction = NULL) {
+  public function delete($mids, ?DatabaseTransaction $transaction = NULL) {
     $memberships = $mids ? $this->load($mids) : FALSE;
     if (!$memberships) {
       // Early exit if no memberships were loaded.

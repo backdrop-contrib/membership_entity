@@ -55,7 +55,7 @@ class MigrateDestinationMembershipEntity extends MigrateDestinationEntity {
    *   Keys: machine names of the fields (to be passed to addFieldMapping)
    *   Values: Human-friendly descriptions of the fields.
    */
-  public function fields(Migration $migration = NULL) {
+  public function fields(?Migration $migration = NULL) {
     $fields = array();
 
     // Core membership properties.
