@@ -765,7 +765,10 @@ function membership_entity_term_form(&$form, &$form_state) {
  */
 function membership_entity_term_form_validate($form, &$form_state) {
   $values = &$form_state['values']['membership_term'];
-  $end_date = !empty($values['modifiers']['end_date']) ? $values['modifiers']['end_date'] : '';
+  // The end date is a 'Y-m-d' string when someone fills it in. Where the
+  // modifiers are hidden (no "administer membership terms"), the date_select
+  // still submits an array of empty date parts; treat that as no end date.
+  $end_date = (!empty($values['modifiers']['end_date']) && is_string($values['modifiers']['end_date'])) ? $values['modifiers']['end_date'] : '';
 
   // Prepare available term modifiers.
   if (empty($values['modifiers']['list']) || $values['term'] == 'lifetime') {

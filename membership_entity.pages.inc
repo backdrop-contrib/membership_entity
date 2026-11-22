@@ -426,13 +426,19 @@ function membership_entity_edit_form($form, &$form_state, $membership = NULL, $t
   // Add the membership entity form fields.
   $form['#membership_entity'] = $membership;
   $form['#bundle_settings'] = membership_entity_get_bundle_settings($membership->type);
-  if (empty($form['#bundle_settings']['status'])) {
-    backdrop_set_message(t('Missing configuration settings for membership type %type. Please visit the <a href="!url">settings page</a> to configure the membership type.', array(
-      '%type' => $membership->type,
-      '!url' => url("admin/memberships/types/manage/$membership->type"),
-    )), 'error');
-
-    return '';
+  // A membership type whose settings have never been saved works with the
+  // defaults from hook_membership_entity_bundle_settings_defaults(). Point
+  // the people who can change them at the settings page, once, when the form
+  // first loads.
+  if (empty($form['#bundle_settings']['status']) && empty($form_state['input'])) {
+    $settings_path = "admin/memberships/types/manage/$membership->type";
+    $settings_item = menu_get_item($settings_path);
+    if ($settings_item && $settings_item['access']) {
+      backdrop_set_message(t('Membership type %type is using the default settings. <a href="!url">Review its settings</a> to choose member roles, member numbers and more.', array(
+        '%type' => $membership->type,
+        '!url' => url($settings_path),
+      )));
+    }
   }
 
   membership_entity_form($form, $form_state);
