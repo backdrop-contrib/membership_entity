@@ -1,5 +1,18 @@
 # Changelog - Membership Entity
 
+## 1.x-1.2.3 (2026-11-22)
+
+Git tag: `1.x-1.2.3`.
+
+### Changed
+- A fresh install can add memberships straight away using the default settings; people who can change them get a one-time notice linking to the settings page. The status report shows "Using default settings" as a warning, not an error (#15).
+
+### Fixed
+- Term: members without "Administer membership terms" could not join or renew on PHP 8; the hidden "Or set the end date" field caused a TypeError (#19).
+- Term: `membership_entity_term_access()` checked the logged-in user instead of the account passed to it for edit, delete and renew (#21).
+- PHP 8.4: "Implicitly marking parameter as nullable" deprecation messages from the membership and type controllers and the Migrate destinations (#17).
+- Tests: the test suite now runs on Backdrop (`.tests.info` files, Backdrop APIs in setUp), all 10 classes passing.
+
 ## 1.x-1.2.2 (2026-11-20)
 
 Git tag: `1.x-1.2.2`.
