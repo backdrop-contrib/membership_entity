@@ -8,7 +8,7 @@
 /**
  * Defines a base class for testing the Membership Entity module.
  */
-class MembershipEntityWebTestCase extends BackdropWebTestCase {
+abstract class MembershipEntityWebTestCase extends BackdropWebTestCase {
   protected $memberRole;
   protected $secondaryRole;
 
@@ -20,12 +20,14 @@ class MembershipEntityWebTestCase extends BackdropWebTestCase {
     if (isset($modules[0]) && is_array($modules[0])) {
       $modules = $modules[0];
     }
-    $modules += array(
-      'membership_entity',
+    // Merge rather than +=: both arrays are numerically keyed, so += would
+    // drop the base modules whenever a subclass passes its own.
+    $modules = array_unique(array_merge(array(
       'entity_plus',
       'entity_ui',
       'views',
-    );
+      'membership_entity',
+    ), $modules));
     parent::setUp($modules);
 
     // Create membership roles.
@@ -73,17 +75,6 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
   /**
    * {@inheritdoc}
    */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership creation',
-      'description' => 'Test creating memberships.',
-      'group' => 'Membership Entity',
-    );
-  }
-
-  /**
-   * {@inheritdoc}
-   */
   protected function setup() {
     parent::setUp();
     // Create member account.
@@ -121,19 +112,22 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
     $this->assertText('Membership 00001 has been created.', 'Simple membership created by admin.');
 
     $member = user_load($this->member->uid);
-    if (isset($member->roles[$this->memberRole])) {
+    if (in_array($this->memberRole, $member->roles)) {
       $this->pass('Member role granted for membership created by admin.');
     }
     else {
       $this->fail('Member role granted for membership created by admin.');
     }
 
-    $membership = membership_entity_load_by_user($this->member, 'membership');
-    $this->assertTrue($membership, 'Membership found in database.');
+    $memberships = membership_entity_load_by_user($this->member, 'membership');
+    $this->assertTrue($memberships, 'Membership found in database.');
   }
 
   /**
-   * Create a membership as admin with secondary members.
+   * Add secondary members to a membership as admin.
+   *
+   * Secondary members are deprecated: the add form no longer offers them, but
+   * the edit form still does for types that allow more than one person.
    */
   public function testSecondaryMembershipCreation() {
     // Update membership settings.
@@ -147,33 +141,31 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
 
     $edit = array(
       'uid[0][value]' => $this->member->name,
-      'secondary_members[0][value]' => $secondary1->name,
-      'secondary_members[1][value]' => $secondary2->name,
       'status' => MEMBERSHIP_ENTITY_ACTIVE,
     );
     $this->backdropPost('admin/memberships/add', $edit, 'Save');
     $this->assertText('Membership 00001 has been created.', 'Simple membership created by admin.');
 
-    $member = user_load($this->member->uid);
-    if (isset($member->roles[$this->memberRole])) {
-      $this->pass('Member role granted for membership created by admin.');
-    }
-    else {
-      $this->fail('Member role granted for membership created by admin.');
-    }
+    $memberships = membership_entity_load_by_user($this->member, 'membership');
+    $membership = is_array($memberships) ? reset($memberships) : $memberships;
+    $this->assertTrue($membership, 'Membership found in database.');
+
+    $edit = array(
+      'secondary_members[0][value]' => $secondary1->name,
+      'secondary_members[1][value]' => $secondary2->name,
+    );
+    $this->backdropPost('membership/' . $membership->mid . '/edit', $edit, 'Save');
+    $this->assertText('Membership 00001 has been updated.', 'Secondary members added by admin.');
+
+    $member = user_load($this->member->uid, TRUE);
+    $this->assertTrue(in_array($this->memberRole, $member->roles), 'Member role granted for membership created by admin.');
 
     foreach (array($secondary1, $secondary2) as $secondary) {
-      $secondary_member = user_load($secondary->uid);
-      if (isset($secondary_member->roles[$this->secondaryRole])) {
-        $this->pass('Secondary Member role granted for membership created by admin.');
-      }
-      else {
-        $this->fail('Secondary Member role granted for membership created by admin.');
-      }
+      $secondary_member = user_load($secondary->uid, TRUE);
+      $this->assertTrue(in_array($this->secondaryRole, $secondary_member->roles), 'Secondary Member role granted for membership edited by admin.');
     }
 
-    $membership = membership_entity_load_by_user($this->member, 'membership');
-    $this->assertTrue($membership, 'Membership found in database.');
+    $membership = membership_entity_load($membership->mid, TRUE);
     $this->assertEqual(count($membership->secondary_members), 2, 'Secondary members found in database.');
   }
 
@@ -187,17 +179,6 @@ class MembershipEntityJoinTestCase extends MembershipEntityWebTestCase {
   /**
    * {@inheritdoc}
    */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership join',
-      'description' => 'Test membership join forms.',
-      'group' => 'Membership Entity',
-    );
-  }
-
-  /**
-   * {@inheritdoc}
-   */
   protected function setup() {
     parent::setUp();
     // Do not require email verification or approval for new accounts.
@@ -205,13 +186,12 @@ class MembershipEntityJoinTestCase extends MembershipEntityWebTestCase {
     config_set('system.core', 'user_register', USER_REGISTER_VISITORS);
 
     // Give anonymous users the join permission.
-    $anonymous = user_role_load_by_name('anonymous user');
-    user_role_grant_permissions($anonymous->rid, array('membership join'));
+    user_role_grant_permissions(BACKDROP_ANONYMOUS_ROLE, array('membership join'));
 
-    // Grant view and edit permissions for member roles.
-    foreach (array('Member', 'Secondary Member') as $role_name) {
-      $role = user_role_load_by_name($role_name);
-      user_role_grant_permissions($role->rid, array(
+    // Grant view and edit permissions for member roles. Backdrop roles are
+    // identified by machine name, not by a numeric rid.
+    foreach (array($this->memberRole, $this->secondaryRole) as $role_name) {
+      user_role_grant_permissions($role_name, array(
         'membership join',
         'membership view own membership',
         'membership edit own membership',
@@ -236,7 +216,7 @@ class MembershipEntityJoinTestCase extends MembershipEntityWebTestCase {
     $this->assertText('Your membership has been created.', 'Membership created for anonymous user from the join form.');
 
     $member = user_load_by_name($username);
-    $this->assertNotNull($member->roles[$this->memberRole], 'Member role granted for anonymous user from the join form.');
+    $this->assertTrue(in_array($this->memberRole, $member->roles), 'Member role granted for anonymous user from the join form.');
 
     $membership = membership_entity_load_by_member_id('00001');
     $this->assertTrue($membership, 'Membership found in database.');
@@ -253,7 +233,7 @@ class MembershipEntityJoinTestCase extends MembershipEntityWebTestCase {
     $this->assertText('Your membership has been created.', 'Membership created for authenticated user from the join form.');
 
     $member = user_load($member->uid);
-    $this->assertNotNull($member->roles[$this->memberRole], 'Member role granted for authenticated user from the join form.');
+    $this->assertTrue(in_array($this->memberRole, $member->roles), 'Member role granted for authenticated user from the join form.');
 
     $membership = membership_entity_load_by_member_id('00001');
     $this->assertTrue($membership, 'Membership found in database.');
@@ -272,17 +252,6 @@ class MembershipEntityEditTestCase extends MembershipEntityWebTestCase {
   /**
    * {@inheritdoc}
    */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership edit',
-      'description' => 'Test membership edit forms.',
-      'group' => 'Membership Entity',
-    );
-  }
-
-  /**
-   * {@inheritdoc}
-   */
   protected function setup() {
     parent::setUp();
 
@@ -292,9 +261,8 @@ class MembershipEntityEditTestCase extends MembershipEntityWebTestCase {
     $this->secondaryMember = $this->backdropCreateUser(array('membership join'));
 
     // Grant view and edit permissions for member roles.
-    foreach (array('Member', 'Secondary Member') as $role_name) {
-      $role = user_role_load_by_name($role_name);
-      user_role_grant_permissions($role->rid, array(
+    foreach (array($this->memberRole, $this->secondaryRole) as $role_name) {
+      user_role_grant_permissions($role_name, array(
         'membership join',
         'membership view own membership',
         'membership edit own membership',
@@ -312,7 +280,7 @@ class MembershipEntityEditTestCase extends MembershipEntityWebTestCase {
     $membership = $this->createMembership(array('uid' => $this->member->uid));
     $edit_path = "membership/$membership->mid/edit";
     $this->backdropGet($edit_path);
-    $this->assertTitle(format_string('Edit membership: @id | Backdrop', array('@id' => $membership->member_id)), 'Membership edit form displayed.');
+    $this->assertTitle(format_string('Edit membership: @id | ' . config_get('system.core', 'site_name'), array('@id' => $membership->member_id)), 'Membership edit form displayed.');
     $this->assertFieldByName('member_id', $membership->member_id, 'The member id field is displayed on the edit form.');
     $this->assertFieldByName('uid[0][value]', $this->member->name, 'The primary member field is displayed on the edit form');
     $this->assertFieldByName('status', $membership->status, 'The membership status field is displayed on the edit form.');
@@ -338,9 +306,9 @@ class MembershipEntityEditTestCase extends MembershipEntityWebTestCase {
     $membership = $this->createMembership(array('uid' => $this->member->uid));
     $edit_path = "membership/$membership->mid/edit";
     $this->backdropGet($edit_path);
-    $this->assertTitle(format_string('Edit membership: @id | Backdrop', array('@id' => $membership->member_id)), 'Membership edit form displayed.');
+    $this->assertTitle(format_string('Edit membership: @id | ' . config_get('system.core', 'site_name'), array('@id' => $membership->member_id)), 'Membership edit form displayed.');
     $this->assertNoFieldByName('member_id', $membership->member_id, 'The member id cannot be edited by a member.');
-    $this->assertText('Unique membership id: ' . $membership->member_id, 'The member id is displayed for the member on the edit form.');
+    $this->assertText('Site id number: ' . $membership->member_id, 'The member id is displayed for the member on the edit form.');
     $this->assertNoFieldByName('uid[0][value]', $this->member->name, 'The primary member field cannot be edited by a member.');
     $this->assertNoFieldByName('status', $membership->status, 'The membership status field cannot be edited by a member.');
 
@@ -359,23 +327,14 @@ class MembershipEntityAccessTestCase extends MembershipEntityWebTestCase {
   /**
    * {@inheritdoc}
    */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership access',
-      'description' => 'Test membership access control.',
-      'group' => 'Membership Entity',
-    );
-  }
-
-  /**
-   * {@inheritdoc}
-   */
   protected function setup() {
     parent::setUp();
-    // Clear permissions for authenticated users.
-    db_delete('role_permission')
-      ->condition('rid', BACKDROP_AUTHENTICATED_ROLE)
-      ->execute();
+    // Clear permissions for authenticated users. Backdrop keeps them in the
+    // role's config, not in a role_permission table.
+    $authenticated = user_role_load(BACKDROP_AUTHENTICATED_ROLE);
+    if (!empty($authenticated->permissions)) {
+      user_role_revoke_permissions(BACKDROP_AUTHENTICATED_ROLE, $authenticated->permissions);
+    }
   }
 
   /**

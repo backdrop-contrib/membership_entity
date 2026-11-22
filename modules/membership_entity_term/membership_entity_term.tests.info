@@ -1,0 +1,29 @@
+[MembershipEntityTermCreateTestCase]
+name = Membership term creation
+description = Test creating membership terms.
+group = Membership Entity Term
+file = membership_entity_term.test
+
+[MembershipEntityTermLengthTestCase]
+name = Membership term lengths
+description = Test term length calculations.
+group = Membership Entity Term
+file = membership_entity_term.test
+
+[MembershipEntityTermEditTestCase]
+name = Membership term edit
+description = Test membership term edit forms.
+group = Membership Entity Term
+file = membership_entity_term.test
+
+[MembershipEntityTermRenewTestCase]
+name = Membership term renew
+description = Test membership renewal forms.
+group = Membership Entity Term
+file = membership_entity_term.test
+
+[MembershipEntityTermAccessTestCase]
+name = Membership term access
+description = Test membership term access control.
+group = Membership Entity Term
+file = membership_entity_term.test

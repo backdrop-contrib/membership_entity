@@ -1,0 +1,5 @@
+[MembershipEntityTypeCreateTestCase]
+name = Membership type creation
+description = Test creating membership types.
+group = Membership Entity Type
+file = membership_entity_type.test

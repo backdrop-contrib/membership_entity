@@ -1,0 +1,23 @@
+[MembershipEntityCreateTestCase]
+name = Membership creation
+description = Test creating memberships.
+group = Membership Entity
+file = membership_entity.test
+
+[MembershipEntityJoinTestCase]
+name = Membership join
+description = Test membership join forms.
+group = Membership Entity
+file = membership_entity.test
+
+[MembershipEntityEditTestCase]
+name = Membership edit
+description = Test membership edit forms.
+group = Membership Entity
+file = membership_entity.test
+
+[MembershipEntityAccessTestCase]
+name = Membership access
+description = Test membership access control.
+group = Membership Entity
+file = membership_entity.test

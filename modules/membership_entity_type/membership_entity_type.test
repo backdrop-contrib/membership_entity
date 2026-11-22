@@ -5,10 +5,14 @@
  * Tests for membership_entity_type.module.
  */
 
+// The shared base class. Backdrop only loads the test file named for each
+// class in the .tests.info file.
+require_once __DIR__ . '/../../membership_entity.test';
+
 /**
  * Defines a base class for testing the Membership Entity Type module.
  */
-class MembershipEntityTypeWebTestCase extends MembershipEntityWebTestCase {
+abstract class MembershipEntityTypeWebTestCase extends MembershipEntityWebTestCase {
 
   /**
    * {@inheritdoc}
@@ -18,7 +22,7 @@ class MembershipEntityTypeWebTestCase extends MembershipEntityWebTestCase {
     if (isset($modules[0]) && is_array($modules[0])) {
       $modules = $modules[0];
     }
-    $modules += array('membership_entity_type');
+    $modules = array_merge(array('membership_entity_type'), $modules);
     parent::setUp($modules);
 
     // Add default membership type settings.
@@ -30,8 +34,8 @@ class MembershipEntityTypeWebTestCase extends MembershipEntityWebTestCase {
         'length' => 5,
       ),
       'cardinality' => 1,
-      'primary_role' => $this->member_role,
-      'secondary_role' => $this->secondary_role,
+      'primary_role' => $this->memberRole,
+      'secondary_role' => $this->secondaryRole,
       'show_on_profile' => 1,
       'all_edit' => 0,
     );
@@ -57,8 +61,8 @@ class MembershipEntityTypeWebTestCase extends MembershipEntityWebTestCase {
         'length' => 5,
       ),
       'cardinality' => 1,
-      'primary_role' => $this->member_role,
-      'secondary_role' => $this->secondary_role,
+      'primary_role' => $this->memberRole,
+      'secondary_role' => $this->secondaryRole,
       'show_on_profile' => 1,
       'all_edit' => 0,
     );
@@ -74,17 +78,6 @@ class MembershipEntityTypeWebTestCase extends MembershipEntityWebTestCase {
  * Test membership type creation functions.
  */
 class MembershipEntityTypeCreateTestCase extends MembershipEntityTypeWebTestCase {
-
-  /**
-   * {@inheritdoc}
-   */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership type creation',
-      'description' => 'Test creating membership types.',
-      'group' => 'Membership Entity Type',
-    );
-  }
 
   /**
    * Test creating a membership type.
@@ -115,7 +108,7 @@ class MembershipEntityTypeCreateTestCase extends MembershipEntityTypeWebTestCase
     // Add a membership type.
     $this->backdropGet('admin/memberships/types');
     $this->clickLink('Add membership type');
-    $this->assertTitle('Add membership type | Backdrop');
+    $this->assertTitle('Add membership type | ' . config_get('system.core', 'site_name'));
 
     $label = $this->randomName();
     $edit = array(
@@ -126,7 +119,7 @@ class MembershipEntityTypeCreateTestCase extends MembershipEntityTypeWebTestCase
       'member_id_format' => 'membership_entity_numeric_member_id',
       'member_id_settings[length]' => 10,
       'cardinality' => FIELD_CARDINALITY_UNLIMITED,
-      'primary_role' => $this->member_role,
+      'primary_role' => $this->memberRole,
       'secondary_role' => 'primary',
     );
     $this->backdropPost('admin/memberships/types/add', $edit, 'Save configuration');

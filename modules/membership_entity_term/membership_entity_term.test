@@ -5,10 +5,14 @@
  * Tests for membership_entity_term.module.
  */
 
+// The shared base class. Backdrop only loads the test file named for each
+// class in the .tests.info file.
+require_once __DIR__ . '/../../membership_entity.test';
+
 /**
  * Defines a base class for testing the Membership Entity Term module.
  */
-class MembershipEntityTermWebTestCase extends MembershipEntityWebTestCase {
+abstract class MembershipEntityTermWebTestCase extends MembershipEntityWebTestCase {
 
   /**
    * {@inheritdoc}
@@ -18,12 +22,8 @@ class MembershipEntityTermWebTestCase extends MembershipEntityWebTestCase {
     if (isset($modules[0]) && is_array($modules[0])) {
       $modules = $modules[0];
     }
-    $modules += array(
-      'membership_entity_term',
-      'date',
-      'date_api',
-      'date_views',
-    );
+    // Date is part of Backdrop core; there is no date_api or date_views.
+    $modules = array_merge(array('date', 'membership_entity_term'), $modules);
     parent::setUp($modules);
 
     // Add default membership term settings.
@@ -63,17 +63,6 @@ class MembershipEntityTermWebTestCase extends MembershipEntityWebTestCase {
  * Test creating a membership term.
  */
 class MembershipEntityTermCreateTestCase extends MembershipEntityTermWebTestCase {
-
-  /**
-   * {@inheritdoc}
-   */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership term creation',
-      'description' => 'Test creating membership terms.',
-      'group' => 'Membership Entity Term',
-    );
-  }
 
   /**
    * Test creating a membership term.
@@ -126,17 +115,6 @@ class MembershipEntityTermCreateTestCase extends MembershipEntityTermWebTestCase
  * Test term length calculations.
  */
 class MembershipEntityTermLengthTestCase extends MembershipEntityTermWebTestCase {
-
-  /**
-   * {@inheritdoc}
-   */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership term lengths',
-      'description' => 'Test term length calculations.',
-      'group' => 'Membership Entity Term',
-    );
-  }
 
   /**
    * Test creating a membership term.
@@ -235,17 +213,6 @@ class MembershipEntityTermLengthTestCase extends MembershipEntityTermWebTestCase
 class MembershipEntityTermEditTestCase extends MembershipEntityTermWebTestCase {
 
   /**
-   * {@inheritdoc}
-   */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership term edit',
-      'description' => 'Test membership term edit forms.',
-      'group' => 'Membership Entity Term',
-    );
-  }
-
-  /**
    * Test editing a membership as an administrator.
    */
   public function testMembershipEditAsAdmin() {
@@ -274,7 +241,7 @@ class MembershipEntityTermEditTestCase extends MembershipEntityTermWebTestCase {
 
     $edit_path = "membership/$membership->mid/term/$term->id/edit";
     $this->backdropGet($edit_path);
-    $this->assertTitle('Edit Term | Backdrop', 'Membership term edit form displayed.');
+    $this->assertTitle('Edit Term | ' . config_get('system.core', 'site_name'), 'Membership term edit form displayed.');
     foreach ($fields as $name => $value) {
       $this->assertFieldByName($name, $value, format_string('The @name field is displayed on the term edit form.', array('@name' => $name)));
     }
@@ -293,8 +260,9 @@ class MembershipEntityTermEditTestCase extends MembershipEntityTermWebTestCase {
 
     $this->assertText('The membership term has been updated.', 'Membership term updated by admin from the edit form.');
     $this->assertText('2 years', 'Term length saved from edit form.');
-    $this->assertText('02/15/2015 - 01:30', 'Term start date saved from edit form.');
-    $this->assertText('02/15/2017 - 01:30', 'Term end date saved from edit form.');
+    // Dates are shown in the site's short date format.
+    $this->assertText(format_date(gmmktime(1, 30, 45, 2, 15, 2015), 'short', '', 'UTC'), 'Term start date saved from edit form.');
+    $this->assertText(format_date(gmmktime(1, 30, 45, 2, 15, 2017), 'short', '', 'UTC'), 'Term end date saved from edit form.');
   }
 
 }
@@ -303,17 +271,6 @@ class MembershipEntityTermEditTestCase extends MembershipEntityTermWebTestCase {
  * Test membership renewal forms.
  */
 class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase {
-
-  /**
-   * {@inheritdoc}
-   */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership term renew',
-      'description' => 'Test membership renewal forms.',
-      'group' => 'Membership Entity Term',
-    );
-  }
 
   /**
    * Test renewing a membership as an administrator.
@@ -350,7 +307,7 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
 
     $renew_path = "membership/$membership->mid/renew";
     $this->backdropGet($renew_path);
-    $this->assertTitle("Renew membership $membership->member_id | Backdrop", "The renew form is displayed for admin.");
+    $this->assertTitle("Renew membership $membership->member_id | " . config_get('system.core', 'site_name'), "The renew form is displayed for admin.");
     foreach ($fields as $name => $value) {
       $this->assertFieldByName($name, $value, format_string('The @name field is displayed on the renew form.', array('@name' => $name)));
     }
@@ -375,8 +332,8 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
     $this->assertEqual(count($terms), 2, 'Renewal term found in the database.');
     $this->assertText('2 years', 'New term length saved from renewal form.');
 
-    $this->assertText(format_date($end, 'custom', 'm/d/Y - H:i'), 'New term start date saved from renew form.');
-    $this->assertText(format_date(strtotime('+2 years', $end), 'custom', 'm/d/Y - H:i'), 'New term end date saved from renew form.');
+    $this->assertText(format_date($end, 'short'), 'New term start date saved from renew form.');
+    $this->assertText(format_date(strtotime('+2 years', $end), 'short'), 'New term end date saved from renew form.');
   }
 
   /**
@@ -403,9 +360,9 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
 
     $renew_path = "membership/$membership->mid/renew";
     $this->backdropGet($renew_path);
-    $this->assertTitle("Renew membership $membership->member_id | Backdrop", 'The renew form is displayed for a member.');
+    $this->assertTitle("Renew membership $membership->member_id | " . config_get('system.core', 'site_name'), 'The renew form is displayed for a member.');
     $this->assertNoFieldByName('member_id', $membership->member_id, 'The member id cannot be edited by a member on the renew form.');
-    $this->assertText('Unique membership id: ' . $membership->member_id, 'The member id is displayed for the member on the renew form.');
+    $this->assertText('Site id number: ' . $membership->member_id, 'The member id is displayed for the member on the renew form.');
     $this->assertNoFieldByName('uid[0][value]', $member->name, 'The primary member field cannot be edited by a member on the renew form.');
     $this->assertNoFieldByName('membership_term[status]', $membership->status, 'The term status field cannot be edited by a member on the renew form.');
     $this->assertFieldByName('membership_term[term]', NULL, 'The renewal term field is displayed for a member on the renew form.');
@@ -416,8 +373,8 @@ class MembershipEntityTermRenewTestCase extends MembershipEntityTermWebTestCase 
     $terms = membership_entity_term_load_by_membership($membership);
     $this->assertEqual(count($terms), 2, 'Renewal term found in the database.');
     $this->assertText('3 years', 'New term length saved from renewal form.');
-    $this->assertText(format_date($end, 'custom', 'm/d/Y - H:i'), 'New term start date saved from renew form.');
-    $this->assertText(format_date(strtotime('+3 years', $end), 'custom', 'm/d/Y - H:i'), 'New term end date saved from renew form.');
+    $this->assertText(format_date($end, 'short'), 'New term start date saved from renew form.');
+    $this->assertText(format_date(strtotime('+3 years', $end), 'short'), 'New term end date saved from renew form.');
   }
 
 }
@@ -430,23 +387,14 @@ class MembershipEntityTermAccessTestCase extends MembershipEntityTermWebTestCase
   /**
    * {@inheritdoc}
    */
-  public static function getInfo() {
-    return array(
-      'name' => 'Membership term access',
-      'description' => 'Test membership term access control.',
-      'group' => 'Membership Entity Term',
-    );
-  }
-
-  /**
-   * {@inheritdoc}
-   */
   protected function setup() {
     parent::setUp();
-    // Clear permissions for authenticated users.
-    db_delete('role_permission')
-      ->condition('rid', BACKDROP_AUTHENTICATED_ROLE)
-      ->execute();
+    // Clear permissions for authenticated users. Backdrop keeps them in the
+    // role's config, not in a role_permission table.
+    $authenticated = user_role_load(BACKDROP_AUTHENTICATED_ROLE);
+    if (!empty($authenticated->permissions)) {
+      user_role_revoke_permissions(BACKDROP_AUTHENTICATED_ROLE, $authenticated->permissions);
+    }
   }
 
   /**
