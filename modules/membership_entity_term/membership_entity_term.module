@@ -240,7 +240,7 @@ function membership_entity_term_access($op, $entity, $account = NULL) {
   switch ($op) {
     case 'edit':
     case 'delete':
-      return user_access('administer membership terms');
+      return user_access('administer membership terms', $account);
 
     case 'renew':
       // Lets another module say a membership is renewed some other way -
@@ -257,10 +257,10 @@ function membership_entity_term_access($op, $entity, $account = NULL) {
         return FALSE;
       }
 
-      if (user_access('administer membership terms')) {
+      if (user_access('administer membership terms', $account)) {
         return TRUE;
       }
-      return membership_entity_access('renew', $entity);
+      return membership_entity_access('renew', $entity, $account);
 
     default:
       // Inherit other permissions from the membership.
