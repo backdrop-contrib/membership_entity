@@ -17,11 +17,11 @@ function membership_entity_requirements($phase) {
     if (empty($data['status'])) {
       $requirements['membership_entity_settings'] = array(
         'title' => $t('Membership Settings'),
-        'value' => $t('Missing configuration'),
-        'description' => $t('The membership entity module is missing configuration settings. Please visit the <a href="!url">settings page</a> to configure the module.', array(
+        'value' => $t('Using default settings'),
+        'description' => $t('Memberships use the default settings until the <a href="!url">settings page</a> is saved. Review them to choose member roles, member numbers and more.', array(
           '!url' => url('admin/memberships/types/manage/membership'),
         )),
-        'severity' => REQUIREMENT_ERROR,
+        'severity' => REQUIREMENT_WARNING,
       );
     }
   }

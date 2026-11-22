@@ -133,6 +133,29 @@ class MembershipEntityCreateTestCase extends MembershipEntityWebTestCase {
   }
 
   /**
+   * Create a membership before the settings have ever been saved.
+   *
+   * A fresh install has no saved settings; the defaults should be enough to
+   * add a membership, with a notice pointing at the settings page.
+   */
+  public function testCreationWithDefaultSettings() {
+    config_set('membership_entity.settings', 'membership_entity_settings', array());
+
+    $this->backdropGet('admin/memberships/add');
+    $this->assertText('is using the default settings', 'Administrators are told the default settings are in use.');
+    $this->assertLink('Review its settings', 0, 'The notice links to the settings page.');
+    $this->assertNoText('Missing configuration settings', 'The form is not blocked.');
+
+    $edit = array(
+      'uid[0][value]' => $this->member->name,
+      'status' => MEMBERSHIP_ENTITY_ACTIVE,
+    );
+    $this->backdropPost(NULL, $edit, 'Save');
+    $this->assertText('Membership 00001 has been created.', 'A membership is created with the default settings.');
+    $this->assertNoText('is using the default settings', 'The notice is not repeated after saving.');
+  }
+
+  /**
    * Create a membership as admin with secondary members.
    */
   public function testSecondaryMembershipCreation() {
