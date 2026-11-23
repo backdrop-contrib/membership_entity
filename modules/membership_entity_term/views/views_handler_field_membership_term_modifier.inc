@@ -60,7 +60,7 @@ class views_handler_field_membership_term_modifier extends views_handler_field_s
       return parent::render($values);
     }
 
-    $items = unserialize($values->{$this->field_alias});
+    $items = unserialize($values->{$this->field_alias}, array('allowed_classes' => FALSE));
     if (is_array($items) && !empty($items)) {
       if ($this->options['list_type'] == 'separator') {
         return implode($this->sanitize_value($this->options['separator'], 'xss_admin'), $items);

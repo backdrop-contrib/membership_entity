@@ -427,3 +427,151 @@ class MembershipEntityAccessTestCase extends MembershipEntityWebTestCase {
   }
 
 }
+
+/**
+ * Test creating the member's account from the membership form, and finding
+ * an existing one.
+ */
+class MembershipEntityMemberAccountTestCase extends MembershipEntityWebTestCase {
+  protected $admin;
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function setUp() {
+    parent::setUp();
+
+    // Name and postcode on the registration form, so on the membership form;
+    // a notes field that is not.
+    $fields = array(
+      'field_first_name' => array('First Name', TRUE),
+      'field_last_name' => array('Last Name', TRUE),
+      'field_postcode' => array('Postcode', TRUE),
+      'field_notes' => array('Notes', FALSE),
+    );
+    foreach ($fields as $field_name => $info) {
+      field_create_field(array('field_name' => $field_name, 'type' => 'text'));
+      field_create_instance(array(
+        'field_name' => $field_name,
+        'entity_type' => 'user',
+        'bundle' => 'user',
+        'label' => $info[0],
+        'settings' => array('user_register_form' => $info[1]),
+      ));
+    }
+    config_set('membership_entity.settings', 'new_account_username', '[user:field_first_name] [user:field_last_name]');
+
+    $this->admin = $this->backdropCreateUser(array('administer memberships', 'administer users'));
+    $this->backdropLogin($this->admin);
+  }
+
+  /**
+   * Post the add form choosing "Someone new".
+   *
+   * @param array $extra
+   *   Further form values.
+   */
+  protected function postNewMember(array $extra = array()) {
+    $edit = $extra + array(
+      'member_source' => 'new',
+      'new_account[fields][field_first_name][und][0][value]' => 'Zara',
+      'new_account[fields][field_last_name][und][0][value]' => 'Testmember',
+      'new_account[fields][field_postcode][und][0][value]' => 'ZZ1 1ZZ',
+      'new_account[mail]' => 'zara@example.com',
+      'status' => MEMBERSHIP_ENTITY_ACTIVE,
+    );
+    $this->backdropPost('admin/memberships/add', $edit, 'Save');
+  }
+
+  /**
+   * The registration fields are offered, saved, and make the username.
+   */
+  public function testRegistrationFieldsAndUsername() {
+    $this->backdropGet('admin/memberships/add');
+    $this->assertFieldByName('new_account[fields][field_first_name][und][0][value]', '', 'A registration field is on the form.');
+    $this->assertNoFieldByName('new_account[fields][field_notes][und][0][value]', '', 'A field not on the registration form is not.');
+    $this->assertFieldByName('new_account[name]', '', 'Someone who may administer users is offered the username.');
+
+    $this->postNewMember();
+    $this->assertText('has been created', 'The membership is created.');
+    $account = user_load_by_name('Zara Testmember');
+    $this->assertTrue($account, 'The username is made from the pattern.');
+    if ($account) {
+      $items = field_get_items('user', $account, 'field_postcode');
+      $this->assertEqual($items[0]['value'], 'ZZ1 1ZZ', 'A registration field is saved to the new account.');
+    }
+  }
+
+  /**
+   * A likely duplicate must be confirmed; a taken e-mail address is named.
+   */
+  public function testDuplicates() {
+    $this->postNewMember();
+    $this->assertTrue(user_load_by_name('Zara Testmember'), 'The first account is made.');
+
+    // Same name, different e-mail address.
+    $this->postNewMember(array('new_account[mail]' => 'zara2@example.com'));
+    $this->assertText('An account already exists for someone with these details', 'A second account with the same name is held back.');
+    $this->assertFalse(user_load_by_name('Zara Testmember 2'), 'No second account yet.');
+
+    $this->postNewMember(array(
+      'new_account[mail]' => 'zara2@example.com',
+      'new_account[not_duplicate]' => TRUE,
+    ));
+    $this->assertTrue(user_load_by_name('Zara Testmember 2'), 'Confirmed as a different person, the account is made with a number added.');
+
+    // An e-mail address already in use names its holder to an administrator.
+    $this->postNewMember(array(
+      'new_account[fields][field_first_name][und][0][value]' => 'Other',
+      'new_account[mail]' => 'zara@example.com',
+    ));
+    $this->assertText('is already registered, to', 'The holder of a taken e-mail address is named.');
+  }
+
+  /**
+   * The settings form refuses a field that is not on the registration form.
+   */
+  public function testUsernamePatternValidation() {
+    $this->backdropPost('admin/memberships/settings', array(
+      'new_account_username' => '[user:field_notes]',
+    ), 'Save configuration');
+    $this->assertText('would always be empty', 'A field missing from the registration form is refused.');
+
+    $this->backdropGet('admin/memberships/settings');
+    $this->assertRaw('[user:field_postcode]', 'The registration fields are listed as tokens.');
+    $this->assertNoRaw('[user:field_notes]', 'Other fields are not.');
+  }
+
+  /**
+   * The member search: any field, a count line, and administrators only.
+   */
+  public function testMemberSearch() {
+    for ($i = 1; $i <= 21; $i++) {
+      $name = 'zzsearch' . sprintf('%02d', $i);
+      entity_create('user', array('name' => $name, 'mail' => $name . '@example.com', 'status' => 1))->save();
+    }
+    entity_create('user', array(
+      'name' => 'postcodeperson',
+      'mail' => 'postcodeperson@example.com',
+      'status' => 1,
+      'field_postcode' => array(LANGUAGE_NONE => array(array('value' => 'QQ9 9QQ'))),
+    ))->save();
+
+    $result = backdrop_json_decode($this->backdropGet('membership/member-autocomplete/zzsearch'));
+    $this->assertEqual(count($result), MEMBERSHIP_ENTITY_MEMBER_SEARCH_LIMIT + 1, 'Twenty accounts and a count line are listed.');
+    $first = reset($result);
+    $this->assertTrue(strpos($first, 'Found 21') !== FALSE, 'The first line says how many were found.');
+
+    $result = backdrop_json_decode($this->backdropGet('membership/member-autocomplete/QQ9'));
+    $this->assertTrue(isset($result['postcodeperson']), 'An account is found by a registration field.');
+    $this->assertTrue(strpos(reset($result), 'Postcode: QQ9 9QQ') !== FALSE, 'The matching field is shown.');
+
+    $summary = backdrop_json_decode($this->backdropGet('membership/member-summary', array('query' => array('name' => 'postcodeperson'))));
+    $this->assertTrue(strpos($summary['html'], 'QQ9 9QQ') !== FALSE, 'The summary shows the account\'s details.');
+
+    $this->backdropLogout();
+    $this->backdropGet('membership/member-autocomplete/zzsearch');
+    $this->assertResponse(403, 'Anonymous visitors cannot search accounts.');
+  }
+
+}

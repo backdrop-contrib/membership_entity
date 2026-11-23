@@ -19,4 +19,14 @@ function membership_entity_hierarchy_views_data_alter(&$data) {
       'handler' => 'views_handler_field_membership_renewal_state',
     ),
   );
+
+  // One search box over member id and name. Core's combine filter fails on
+  // mixed collations; see views_handler_filter_membership_search.
+  $data['views']['membership_search'] = array(
+    'title' => t('Search fields (membership)'),
+    'help' => t('Matches the text in any of the chosen fields, field by field. Use instead of "Combine fields filter" where the fields come from different tables.'),
+    'filter' => array(
+      'handler' => 'views_handler_filter_membership_search',
+    ),
+  );
 }

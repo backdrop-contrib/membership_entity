@@ -15,6 +15,10 @@ active and taken away when it lapses.
   periods, a fixed renewal date for a membership year, and a full history.
 - Join and renew forms, or send members to your own pages (a shop product,
   say) instead.
+- Adding a membership for someone new creates their account on the same form,
+  with the details your registration form asks for, a username made from a
+  pattern you set, and a warning when they may already have an account.
+  Existing accounts can be found by name, e-mail address or postcode.
 - Lapsed members who rejoin can keep their old membership and number.
 - Nothing is deleted automatically: a retention period protects lapsed
   memberships, and deleting a user keeps their membership record.
@@ -31,8 +35,8 @@ Enable only what the site needs.
 - **Membership Entity Hierarchy** — sub-members: memberships that belong to
   another, such as the members of a household or of an affiliated
   association. The parent's secretary can manage their own sub-members, one
-  payment can renew everyone, and a renewals tab lists who is due. Needs
-  Term.
+  payment can renew everyone, and a renewals tab lists who is due. A
+  Sub-members tab lists and searches them. Needs Term.
 - **Membership Entity Postal Members** — members with no e-mail address. Their
   account gets an undeliverable address and no mail is sent to it.
 - **Membership Entity Renewal Reminders** — e-mails members a set number of
@@ -63,6 +67,11 @@ Enable only what the site needs.
 Upgrading from 1.0.x: run update.php. It enables Hierarchy and Postal Members
 on sites that already use sub-members or postal members, so nothing changes.
 
+Upgrading to 1.3.0: run update.php, which adds the Sub-members view. To have
+usernames made for new members, set a pattern at Memberships > Settings and
+tick "Display on user registration form" on the user fields the membership
+form should ask for.
+
 ## Issues
 
 Bugs and feature requests should be reported in
@@ -74,10 +83,10 @@ a feature and submit a pull request it will gladly be considered.
 ## Security
 
 The code changed in each release since 1.x-1.0.3 has been reviewed for the
-kinds of vulnerability reported in the Drupal security advisories of 7 to 28
-October 2026, most recently on 2 November 2026 for 1.x-1.2.0. Those advisories
-were for Drupal 10/11 and do not apply to Backdrop directly; the module was
-checked for the same classes of mistake.
+kinds of vulnerability reported in the Drupal security advisories of
+7 October to 18 November 2026, most recently on 23 November 2026 for
+1.x-1.3.0. Those advisories were for Drupal 10/11 and do not apply to Backdrop
+directly; the module was checked for the same classes of mistake.
 
 Please report security issues privately to security@backdropcms.org, not in
 the issue queue.

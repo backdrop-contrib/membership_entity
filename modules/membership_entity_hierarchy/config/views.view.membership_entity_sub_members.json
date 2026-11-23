@@ -1,0 +1,288 @@
+{
+    "_config_name": "views.view.membership_entity_sub_members",
+    "module": "membership_entity_hierarchy",
+    "name": "membership_entity_sub_members",
+    "description": "The sub-members of one membership: shown on its page when there are only a few, and as its Sub-members tab.",
+    "tag": "membership_entity",
+    "disabled": false,
+    "base_table": "membership_entity",
+    "human_name": "Membership: Sub-members",
+    "core": 0,
+    "display": {
+        "default": {
+            "display_title": "Master",
+            "display_plugin": "default",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "title": "Sub-members",
+                "use_more_always": false,
+                "access": {
+                    "type": "none"
+                },
+                "cache": {
+                    "type": "none"
+                },
+                "exposed_form": {
+                    "type": "basic"
+                },
+                "pager": {
+                    "type": "none",
+                    "options": {
+                        "offset": "0"
+                    }
+                },
+                "style_plugin": "table",
+                "style_options": {
+                    "columns": {
+                        "mid": "mid",
+                        "member_id": "member_id",
+                        "primary_member": "primary_member",
+                        "effective_status": "effective_status",
+                        "expiry": "expiry"
+                    },
+                    "empty_table": false,
+                    "info": {
+                        "mid": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "member_id": {
+                            "sortable": 1,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "primary_member": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "effective_status": {
+                            "sortable": 1,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "expiry": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        }
+                    },
+                    "default": "member_id"
+                },
+                "empty": {
+                    "area": {
+                        "id": "area",
+                        "table": "views",
+                        "field": "area",
+                        "empty": true,
+                        "content": "No sub-members found.",
+                        "format": "filtered_html"
+                    }
+                },
+                "relationships": {
+                    "primary_member": {
+                        "id": "primary_member",
+                        "table": "membership_entity",
+                        "field": "primary_member"
+                    }
+                },
+                "fields": {
+                    "mid": {
+                        "id": "mid",
+                        "table": "membership_entity",
+                        "field": "mid",
+                        "label": "",
+                        "exclude": true,
+                        "element_label_colon": false,
+                        "separator": ""
+                    },
+                    "member_id": {
+                        "id": "member_id",
+                        "table": "membership_entity",
+                        "field": "member_id",
+                        "alter": {
+                            "make_link": true,
+                            "path": "membership/[mid]",
+                            "alt": "View membership [member_id]"
+                        }
+                    },
+                    "primary_member": {
+                        "id": "primary_member",
+                        "table": "membership_entity",
+                        "field": "primary_member",
+                        "label": "Member",
+                        "link_to_entity": 1,
+                        "view_mode": "full",
+                        "bypass_access": 1
+                    },
+                    "effective_status": {
+                        "id": "effective_status",
+                        "table": "membership_entity",
+                        "field": "effective_status",
+                        "label": "Status"
+                    },
+                    "expiry": {
+                        "id": "expiry",
+                        "table": "membership_entity",
+                        "field": "expiry",
+                        "label": "Covered to"
+                    }
+                },
+                "sorts": {
+                    "member_id": {
+                        "id": "member_id",
+                        "table": "membership_entity",
+                        "field": "member_id"
+                    }
+                },
+                "arguments": {
+                    "pid": {
+                        "id": "pid",
+                        "table": "membership_entity",
+                        "field": "pid",
+                        "default_action": "not found",
+                        "validate": {
+                            "type": "numeric",
+                            "fail": "not found"
+                        },
+                        "break_phrase": 0
+                    }
+                },
+                "filters": []
+            }
+        },
+        "embed": {
+            "display_title": "Inline list",
+            "display_plugin": "embed",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "display_description": "Shown on the membership page when it has only a few sub-members."
+            }
+        },
+        "page": {
+            "display_title": "Page",
+            "display_plugin": "page",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "display_description": "The Sub-members tab on a membership.",
+                "defaults": {
+                    "pager": false,
+                    "fields": false,
+                    "filters": false,
+                    "filter_groups": false
+                },
+                "pager": {
+                    "type": "full",
+                    "options": {
+                        "items_per_page": "25",
+                        "offset": "0"
+                    }
+                },
+                "filters": {
+                    "membership_search": {
+                        "id": "membership_search",
+                        "table": "views",
+                        "field": "membership_search",
+                        "operator": "contains",
+                        "exposed": true,
+                        "expose": {
+                            "operator_id": "membership_search_op",
+                            "label": "Member id or name",
+                            "operator": "membership_search_op",
+                            "identifier": "search"
+                        },
+                        "fields": {
+                            "member_id": "member_id",
+                            "name": "name",
+                            "member_name": "member_name"
+                        }
+                    }
+                },
+                "fields": {
+                    "mid": {
+                        "id": "mid",
+                        "table": "membership_entity",
+                        "field": "mid",
+                        "label": "",
+                        "exclude": true,
+                        "element_label_colon": false,
+                        "separator": ""
+                    },
+                    "name": {
+                        "id": "name",
+                        "table": "users",
+                        "field": "name",
+                        "relationship": "primary_member",
+                        "label": "",
+                        "exclude": true,
+                        "element_label_colon": false,
+                        "link_to_user": false
+                    },
+                    "member_name": {
+                        "id": "member_name",
+                        "table": "membership_entity",
+                        "field": "member_name",
+                        "label": "",
+                        "exclude": true,
+                        "element_label_colon": false
+                    },
+                    "member_id": {
+                        "id": "member_id",
+                        "table": "membership_entity",
+                        "field": "member_id",
+                        "alter": {
+                            "make_link": true,
+                            "path": "membership/[mid]",
+                            "alt": "View membership [member_id]"
+                        }
+                    },
+                    "primary_member": {
+                        "id": "primary_member",
+                        "table": "membership_entity",
+                        "field": "primary_member",
+                        "label": "Member",
+                        "link_to_entity": 1,
+                        "view_mode": "full",
+                        "bypass_access": 1
+                    },
+                    "effective_status": {
+                        "id": "effective_status",
+                        "table": "membership_entity",
+                        "field": "effective_status",
+                        "label": "Status"
+                    },
+                    "expiry": {
+                        "id": "expiry",
+                        "table": "membership_entity",
+                        "field": "expiry",
+                        "label": "Covered to"
+                    }
+                },
+                "path": "membership/%/sub-members",
+                "menu": {
+                    "type": "tab",
+                    "title": "Sub-members",
+                    "description": "The memberships that belong to this one.",
+                    "weight": "1",
+                    "name": "navigation",
+                    "context": 0,
+                    "context_only_inline": 0
+                }
+            }
+        }
+    }
+}

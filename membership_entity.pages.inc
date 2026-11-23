@@ -281,6 +281,30 @@ function membership_entity_global_settings_form($form, &$form_state) {
     '#default_value' => $config->get('member_id_start') ? $config->get('member_id_start') : '',
   );
 
+  // Somebody adding a member should not have to invent a username for them.
+  // Only the fields on the registration form are on the membership form, so
+  // only those have a value when the name is built: they are the ones listed.
+  $tokens = array();
+  foreach (_membership_entity_registration_fields() as $field_name => $label) {
+    $tokens[] = '<code>[user:' . $field_name . ']</code> ' . check_plain($label);
+  }
+  $form['new_accounts'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Accounts created on the membership form'),
+  );
+  $form['new_accounts']['new_account_username'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Username pattern'),
+    '#default_value' => $config->get('new_account_username'),
+    '#maxlength' => 255,
+    '#description' => t('How the username is made when a membership is added for someone new, for example %example. A number is added if it is taken. Left empty, or where the pattern gives nothing, the part of the e-mail address before the @ is used.', array(
+      '%example' => '[user:field_first_name] [user:field_last_name]',
+    )) . ($tokens
+      ? '<br />' . t('Fields on the registration form, which the membership form shows:') . '<br />' . implode('<br />', $tokens)
+      : '<br />' . t('No user fields are on the registration form, so only the e-mail address is available. Tick "Display on user registration form" on a user field to offer it here.'))
+      . '<br />' . theme('token_tree_link', array('token_types' => array('user'))),
+  );
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
@@ -314,6 +338,20 @@ function membership_entity_global_settings_form_validate($form, &$form_state) {
   // A new start at or below numbers already issued would not be where new
   // members begin, which defeats the point of choosing one. An unchanged start
   // is fine: once the sequence has passed it, it has done its job.
+  // A field missing from the registration form is never on the membership
+  // form either, so its token would always come out empty.
+  $pattern = trim($form_state['values']['new_account_username']);
+  if ($pattern !== '' && preg_match_all('/\[user:(field_[a-z0-9_]+)\]/', $pattern, $matches)) {
+    $available = _membership_entity_registration_fields();
+    foreach (array_unique($matches[1]) as $field_name) {
+      if (!isset($available[$field_name])) {
+        form_set_error('new_account_username', t('%token would always be empty: that field is not on the registration form. Tick "Display on user registration form" on it, or use another field.', array(
+          '%token' => '[user:' . $field_name . ']',
+        )));
+      }
+    }
+  }
+
   $start = trim($form_state['values']['member_id_start']);
   $current = (string) config_get('membership_entity.settings', 'member_id_start');
   $highest = MembershipEntityNumericMemberId::highestInUse();
@@ -334,6 +372,7 @@ function membership_entity_global_settings_form_submit($form, &$form_state) {
     ->set('join_path', trim($form_state['values']['join_path']))
     ->set('renew_path', trim($form_state['values']['renew_path']))
     ->set('member_id_start', trim($form_state['values']['member_id_start']))
+    ->set('new_account_username', trim($form_state['values']['new_account_username']))
     ->save();
 
   backdrop_set_message(t('The configuration options have been saved.'));
@@ -678,12 +717,23 @@ function membership_entity_form(&$form, &$form_state) {
   $may_create_account = membership_entity_may_create_member_account($membership);
   $may_choose_account = user_access('administer memberships');
 
-  if ($may_create_account && $may_choose_account) {
+  // Someone who may add members beneath one membership but not administer
+  // memberships (an association secretary) may still name a person who has an
+  // account: one of that membership's own people, or anyone by their exact
+  // e-mail address. See _membership_entity_scoped_resolve().
+  $scoped_parent = FALSE;
+  if (!$may_choose_account && $may_create_account && !empty($membership->pid) && empty($membership->mid)) {
+    $scoped_parent = membership_entity_load($membership->pid);
+  }
+  $form['#membership_entity_scoped_parent'] = $scoped_parent;
+  $may_choose = $may_choose_account || $scoped_parent;
+
+  if ($may_create_account && $may_choose) {
     $form['membership']['member_source'] = array(
       '#type' => 'radios',
       '#title' => t('Primary member'),
       '#options' => array(
-        'existing' => t('An existing user account'),
+        'existing' => $scoped_parent ? t('Someone who already has an account') : t('An existing user account'),
         'new' => t('Someone new — create their account now'),
       ),
       // Arriving from a parent's "Add sub-member" action means adding somebody
@@ -700,7 +750,7 @@ function membership_entity_form(&$form, &$form_state) {
   $form['membership']['uid'] = array(
     '#type' => 'membership_entity_member_select',
     '#title' => t('Primary member'),
-    '#access' => $may_choose_account,
+    '#access' => (bool) $may_choose,
     // Where creating an account is on offer this field may legitimately be left
     // empty, so requiredness is judged in the validate handler instead. Marking
     // it #required would reject the form before the choice is even read: an
@@ -708,10 +758,24 @@ function membership_entity_form(&$form, &$form_state) {
     // ahead of every form level handler.
     '#required' => !$may_create_account,
     '#default_value' => !empty($membership->uid) ? array($membership->uid) : array(),
+    // Search by name, e-mail or registration field rather than by the start
+    // of the username, and show who was chosen.
+    '#autocomplete_path' => 'membership/member-autocomplete',
+    '#member_summary' => TRUE,
+    '#member_summary_url' => 'membership/member-summary',
+    // An exact e-mail address resolves too, as well as a username.
+    '#resolve_mail' => TRUE,
   );
+  if ($scoped_parent) {
+    $form['membership']['uid']['#autocomplete_path'] = 'membership/' . $scoped_parent->mid . '/member-autocomplete';
+    $form['membership']['uid']['#member_summary_url'] = 'membership/' . $scoped_parent->mid . '/member-summary';
+    $form['membership']['uid']['#description'] = t('Search the members of %parent, or enter the full e-mail address of someone who has an account.', array(
+      '%parent' => membership_entity_parent_label($scoped_parent->mid),
+    ));
+  }
 
   if ($may_create_account) {
-    if ($may_choose_account) {
+    if ($may_choose) {
       // The member select is a composite element that renders no wrapper of its
       // own, and backdrop_process_states() registers a state against the
       // element's HTML id — so without a tag carrying that id there is nothing
@@ -742,7 +806,7 @@ function membership_entity_form(&$form, &$form_state) {
       $form['membership']['uid']['#title'] = '';
     }
 
-    _membership_entity_new_account_elements($form, $may_choose_account);
+    _membership_entity_new_account_elements($form, $form_state, (bool) $may_choose);
   }
 
   $cardinality = (int) $bundle_settings['cardinality'];
@@ -837,24 +901,50 @@ function membership_entity_form(&$form, &$form_state) {
 /**
  * Build the fields for creating the primary member's account on this form.
  *
- * Kept deliberately small: a username and an address. Roles,
- * status and the password are not offered, because the person filling this in
- * may be an association secretary rather than a site administrator. The account
- * is created as an ordinary authenticated user with a random password, and the
- * member sets their own by asking for a new one.
+ * The account's own fields come first: whichever user fields the site shows on
+ * its registration form ("Display on user registration form" on each field),
+ * so a member's name, address and phone go in now rather than on a second
+ * visit to the account. Then the e-mail address. The username is generated
+ * from the name (see _membership_entity_new_account_name()); only someone who
+ * may administer users is offered it, tucked away, to override.
+ *
+ * Roles, status and the password are not offered, because the person filling
+ * this in may be an association secretary rather than a site administrator.
+ * The account is created as an ordinary authenticated user with a random
+ * password, and the member sets their own by asking for a new one.
  *
  * @param array $form
  *   The membership form, altered in place.
+ * @param array $form_state
+ *   The form state, which Field API keeps its widget state in.
  * @param bool $conditional
  *   Whether the fields are one branch of a choice, and so must be hidden until
  *   that branch is picked, rather than the only way to name the member.
  */
-function _membership_entity_new_account_elements(&$form, $conditional) {
+function _membership_entity_new_account_elements(&$form, &$form_state, $conditional) {
   $form['membership']['new_account'] = array(
     '#type' => 'container',
     '#tree' => TRUE,
     '#attributes' => array('class' => array('membership-entity-new-account')),
+    // Runs after the children are validated and before any form level handler,
+    // so the generated username is in place before membership_entity_postal
+    // derives an address from it.
+    '#element_validate' => array('_membership_entity_new_account_name_validate'),
   );
+  if ($conditional) {
+    $form['#after_build'][] = '_membership_entity_new_account_after_build';
+  }
+
+  // Shown only when the details entered match an existing account: see
+  // _membership_entity_new_account_duplicates_after_build().
+  $form['membership']['new_account']['not_duplicate'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('This is a different person: create a new account'),
+    '#weight' => -20,
+    '#prefix' => '<div class="membership-entity-not-duplicate element-hidden">',
+    '#suffix' => '</div>',
+  );
+  $form['#after_build'][] = '_membership_entity_new_account_duplicates_after_build';
 
   if ($conditional) {
     $form['membership']['new_account']['#states'] = array(
@@ -869,18 +959,162 @@ function _membership_entity_new_account_elements(&$form, $conditional) {
     $form['membership']['new_account']['#description'] = t('The person this membership is for. An account is created for them so that the membership has an owner.');
   }
 
-  $form['membership']['new_account']['name'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Username'),
-    '#maxlength' => USERNAME_MAX_LENGTH,
-    '#description' => t('Spaces are allowed; punctuation is not allowed except for periods, hyphens, apostrophes, and underscores.'),
+  // The account's registration fields, in the order the site gave them. Their
+  // values are kept apart under new_account[fields], so they cannot collide
+  // with the membership's own fields of the same name.
+  $form['membership']['new_account']['fields'] = array(
+    '#parents' => array('new_account', 'fields'),
+    '#weight' => 0,
   );
+  // As core's user_register_form(): attach every user field, then hide those
+  // the site does not show at registration.
+  $stub = entity_create('user', array());
+  field_attach_form('user', $stub, $form['membership']['new_account']['fields'], $form_state);
+  foreach (field_info_instances('user', 'user') as $field_name => $instance) {
+    if (empty($instance['settings']['user_register_form']) && isset($form['membership']['new_account']['fields'][$field_name])) {
+      $form['membership']['new_account']['fields'][$field_name]['#access'] = FALSE;
+    }
+  }
 
   $form['membership']['new_account']['mail'] = array(
     '#type' => 'textfield',
     '#title' => t('E-mail address'),
     '#maxlength' => EMAIL_MAX_LENGTH,
+    '#weight' => 50,
   );
+
+  // Left blank, the username is made from the site's pattern. Only someone who
+  // could edit it on the account anyway is offered it here, first, because it
+  // is the account's identity.
+  $form['membership']['new_account']['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Username'),
+    '#maxlength' => USERNAME_MAX_LENGTH,
+    '#weight' => -10,
+    '#access' => user_access('administer users'),
+    '#description' => _membership_entity_new_account_name_help(),
+    // Without access Form API still supplies the default, so the value is
+    // always present, and empty means "generate one".
+    '#default_value' => '',
+  );
+}
+
+/**
+ * Describe how a username left blank will be made.
+ *
+ * Names the pattern's fields by their labels, as the person filling in the form
+ * knows them, rather than showing raw tokens, and links to where it is set for
+ * those who may change it.
+ *
+ * @return string
+ *   The description for the username field.
+ */
+function _membership_entity_new_account_name_help() {
+  $pattern = trim((string) config_get('membership_entity.settings', 'new_account_username'));
+  if ($pattern === '') {
+    $help = t('Optional. Leave blank to use the part of the e-mail address before the @.');
+  }
+  else {
+    $labels = array();
+    foreach (field_info_instances('user', 'user') as $field_name => $instance) {
+      $labels['[user:' . $field_name . ']'] = $instance['label'];
+    }
+    $labels['[user:mail]'] = t('E-mail address');
+    $help = t('Optional. Leave blank to make it from: %pattern.', array('%pattern' => strtr($pattern, $labels)));
+  }
+
+  if (user_access('administer memberships')) {
+    $help .= ' ' . t('<a href="!url">Change how usernames are made</a>.', array('!url' => url('admin/memberships/settings')));
+  }
+  return $help . ' ' . t('Spaces are allowed; punctuation is not allowed except for periods, hyphens, apostrophes, and underscores.');
+}
+
+/**
+ * Element validate: settle the new account's username.
+ *
+ * A username the person entered is kept. Otherwise one is made from the
+ * member's name with _membership_entity_new_account_name(). Runs only when the
+ * account is actually being created.
+ *
+ * @param array $element
+ *   The new_account container.
+ * @param array $form_state
+ *   The form state; new_account[name] is written back.
+ */
+function _membership_entity_new_account_name_validate($element, &$form_state) {
+  if (!_membership_entity_creating_account($form_state)) {
+    return;
+  }
+
+  $values = $form_state['values']['new_account'];
+  if (trim((string) $values['name']) === '') {
+    // The pattern's tokens read the account, so give an unsaved one the values
+    // entered on the form.
+    $account = entity_create('user', array('mail' => trim((string) $values['mail'])));
+    if (isset($element['fields'])) {
+      field_attach_submit('user', $account, $element['fields'], $form_state);
+    }
+    $form_state['values']['new_account']['name'] = _membership_entity_new_account_name($account);
+  }
+}
+
+/**
+ * The user fields shown on the registration form, and so on the membership
+ * form when it creates an account.
+ *
+ * @return array
+ *   Field labels, keyed by field name.
+ */
+function _membership_entity_registration_fields() {
+  $fields = array();
+  foreach (field_info_instances('user', 'user') as $field_name => $instance) {
+    if (!empty($instance['settings']['user_register_form'])) {
+      $fields[$field_name] = $instance['label'];
+    }
+  }
+  return $fields;
+}
+
+/**
+ * Make a unique username for a member whose account is being created.
+ *
+ * Built from the site's username pattern (Memberships > Settings), whose tokens
+ * read the unsaved account. Where there is no pattern, or it gives nothing, the
+ * part of the e-mail address before the @ is used, else "member". A number is
+ * added when the name is taken: "John Smith", "John Smith 2".
+ *
+ * @param User $account
+ *   The account about to be created, carrying the values from the form.
+ *
+ * @return string
+ *   A username not yet in use.
+ */
+function _membership_entity_new_account_name(User $account) {
+  $base = '';
+  $pattern = trim((string) config_get('membership_entity.settings', 'new_account_username'));
+  if ($pattern !== '') {
+    // Unsanitised, because the result is stored and escaped where shown; field
+    // tokens come back rendered, so strip any markup and decode entities.
+    $base = token_replace($pattern, array('user' => $account), array('sanitize' => FALSE, 'clear' => TRUE));
+    $base = html_entity_decode(strip_tags($base), ENT_QUOTES, 'UTF-8');
+  }
+
+  $mail = (string) $account->mail;
+  if (trim($base) === '' && strpos($mail, '@')) {
+    $base = substr($mail, 0, strpos($mail, '@'));
+  }
+
+  // Keep only what user_validate_name() accepts, and leave room for a suffix.
+  $base = preg_replace('/\s+/u', ' ', $base);
+  $base = trim(preg_replace("/[^\\p{L}\\p{N} .'_-]+/u", '', $base));
+  $base = preg_replace('/ {2,}/', ' ', $base);
+  $base = backdrop_substr($base === '' ? 'member' : $base, 0, USERNAME_MAX_LENGTH - 6);
+
+  $name = $base;
+  for ($i = 2; db_query_range('SELECT 1 FROM {users} WHERE name = :name', 0, 1, array(':name' => $name))->fetchField(); $i++) {
+    $name = $base . ' ' . $i;
+  }
+  return $name;
 }
 
 /**
@@ -906,7 +1140,7 @@ function _membership_entity_new_account_validate($form, &$form_state) {
   form_set_value($element['name'], $name, $form_state);
 
   if ($name === '') {
-    form_set_error('new_account][name', t('You must enter a username for the new member.'));
+    form_set_error('new_account][name', t('Enter the new member\'s name, or a username for them.'));
   }
   elseif ($error = user_validate_name($name)) {
     form_set_error('new_account][name', $error);
@@ -924,8 +1158,114 @@ function _membership_entity_new_account_validate($form, &$form_state) {
   elseif (!valid_email_address($mail)) {
     form_set_error('new_account][mail', t('The e-mail address %mail is not valid.', array('%mail' => $mail)));
   }
-  elseif ((bool) db_query_range('SELECT uid FROM {users} WHERE mail = :mail', 0, 1, array(':mail' => $mail))->fetchField()) {
-    form_set_error('new_account][mail', t('The e-mail address %mail is already registered.', array('%mail' => $mail)));
+  elseif ($existing_uid = db_query_range('SELECT uid FROM {users} WHERE mail = :mail', 0, 1, array(':mail' => $mail))->fetchField()) {
+    if (user_access('administer memberships') && ($existing = user_load($existing_uid))) {
+      form_set_error('new_account][mail', t('The e-mail address %mail is already registered, to %who. Choose "An existing user account" and search for them instead.', array(
+        '%mail' => $mail,
+        '%who' => user_format_name($existing),
+      )));
+    }
+    else {
+      form_set_error('new_account][mail', t('The e-mail address %mail is already registered.', array('%mail' => $mail)));
+    }
+  }
+
+  // Somebody with the same name (or whatever the username is built from) may
+  // already have an account. Not an error in itself - two people can share a
+  // name - but it has to be confirmed rather than slipping through.
+  if (!empty($form_state['membership_entity_duplicates']) && empty($values['not_duplicate'])) {
+    form_set_error('new_account][not_duplicate', format_plural(count($form_state['membership_entity_duplicates']),
+      'An account already exists for someone with these details. Check it is not the same person, then tick "This is a different person" to go ahead.',
+      '@count accounts already exist for people with these details. Check none of them is the same person, then tick "This is a different person" to go ahead.'));
+  }
+
+  // The account's own fields, validated as core's registration form does.
+  if (isset($element['fields'])) {
+    field_attach_form_validate('user', entity_create('user', array()), $element['fields'], $form_state);
+  }
+}
+
+/**
+ * After build: user fields are only required when creating the account.
+ *
+ * A registration field the site marks required carries #required, which is
+ * enforced while validation walks the form, before any handler can look at
+ * which branch was chosen. So where an existing account was chosen, it is lifted
+ * here, on the built form.
+ *
+ * @param array $form
+ *   The built membership form.
+ * @param array $form_state
+ *   The form state.
+ *
+ * @return array
+ *   The form.
+ */
+function _membership_entity_new_account_after_build($form, &$form_state) {
+  if (isset($form['membership']['new_account']['fields'])
+    && isset($form_state['input']['member_source']) && $form_state['input']['member_source'] != 'new') {
+    _membership_entity_unset_required($form['membership']['new_account']['fields']);
+  }
+  return $form;
+}
+
+/**
+ * After build: look for an account the new member may already have.
+ *
+ * Runs on the submitted form, once its values are known and before validation,
+ * so that the "different person" checkbox can be shown alongside the warning
+ * that needs it. The warning itself is raised in
+ * _membership_entity_new_account_validate().
+ *
+ * @param array $form
+ *   The built membership form.
+ * @param array $form_state
+ *   The form state; the accounts found are kept in
+ *   $form_state['membership_entity_duplicates'].
+ *
+ * @return array
+ *   The form.
+ */
+function _membership_entity_new_account_duplicates_after_build($form, &$form_state) {
+  if (empty($form_state['process_input']) || !isset($form_state['values']['new_account'])
+    || !_membership_entity_creating_account($form_state)) {
+    return $form;
+  }
+
+  $duplicates = _membership_entity_possible_duplicates($form_state['values']['new_account']);
+  $form_state['membership_entity_duplicates'] = $duplicates;
+  if ($duplicates) {
+    $element = &$form['membership']['new_account']['not_duplicate'];
+    $element['#prefix'] = '<div class="membership-entity-not-duplicate messages warning">';
+    // Who they are is only shown to someone who could choose the account
+    // instead; anyone else is told only that there is one.
+    if (user_access('administer memberships')) {
+      $items = array();
+      foreach ($duplicates as $account) {
+        // The label is already escaped, and l() escapes again: undo the first.
+        $text = html_entity_decode(strip_tags(_membership_entity_account_label($account)), ENT_QUOTES, 'UTF-8');
+        $items[] = l($text, 'user/' . $account->uid, array('attributes' => array('target' => '_blank')));
+      }
+      $element['#description'] = t('Possibly the same person:') . theme('item_list', array('items' => $items))
+        . t('If it is, choose "An existing user account" above and search for them instead.');
+    }
+    else {
+      $element['#description'] = t('If it is the same person, ask the site administrator to add their existing account instead.');
+    }
+  }
+  return $form;
+}
+
+/**
+ * Clear #required on an element and everything inside it.
+ *
+ * @param array $element
+ *   The element, altered in place.
+ */
+function _membership_entity_unset_required(array &$element) {
+  $element['#required'] = FALSE;
+  foreach (element_children($element) as $key) {
+    _membership_entity_unset_required($element[$key]);
   }
 }
 
@@ -954,6 +1294,10 @@ function membership_entity_create_member_account_submit($form, &$form_state) {
     'init' => $values['mail'],
     'status' => 1,
   ));
+  // Name, address and the rest, from the registration fields on the form.
+  if (isset($form['membership']['new_account']['fields'])) {
+    field_attach_submit('user', $account, $form['membership']['new_account']['fields'], $form_state);
+  }
   $account->save();
 
   if (empty($account->uid)) {
@@ -969,7 +1313,7 @@ function membership_entity_create_member_account_submit($form, &$form_state) {
     '%name' => $account->name,
   ), WATCHDOG_NOTICE, l(t('edit'), 'user/' . $account->uid . '/edit'));
 
-  backdrop_set_message(t('Created an account for %name.', array('%name' => format_username($account))));
+  backdrop_set_message(t('Created an account for %name.', array('%name' => user_format_name($account))));
 }
 
 /**
@@ -1138,6 +1482,23 @@ function membership_entity_form_validate($form, &$form_state) {
     elseif (empty($values['uid'])) {
       form_set_error('uid', t('Choose the member this membership is for, or create an account for them.'));
     }
+    // Someone limited to one membership may name only its own people, or
+    // someone by exact e-mail address, and may not add a person who is
+    // already beneath it or beneath another membership.
+    elseif (!empty($form['#membership_entity_scoped_parent'])) {
+      $parent = $form['#membership_entity_scoped_parent'];
+      $typed = isset($form_state['input']['uid'][0]['value']) ? $form_state['input']['uid'][0]['value'] : '';
+      $account = _membership_entity_scoped_resolve($parent, $typed);
+      $uid = is_array($values['uid']) ? reset($values['uid']) : $values['uid'];
+      if (!$account || $account->uid != $uid) {
+        // The same words as an unknown username, so nothing is learnt about
+        // accounts outside the membership.
+        form_set_error('uid', t('Could not find an account with the username %name', array('%name' => $typed)));
+      }
+      elseif ($problem = _membership_entity_scoped_account_problem($parent, $account)) {
+        form_set_error('uid', $problem);
+      }
+    }
   }
 
   // The joining date arrives as a Y-m-d string and has to be a timestamp by the
@@ -1206,7 +1567,7 @@ function membership_entity_form_validate($form, &$form_state) {
     foreach ($values['secondary_members'] as $delta => $value) {
       if ($values['uid'] == $value) {
         form_set_error("secondary_members][$delta][value", t('%name is the primary member.', array(
-          '%name' => format_username(user_load($values['uid'])),
+          '%name' => user_format_name(user_load($values['uid'])),
         )));
       }
     }
@@ -1420,4 +1781,489 @@ function membership_entity_multiple_delete_confirm_submit($form, &$form_state) {
     backdrop_set_message(format_plural($count, 'Deleted 1 membership.', 'Deleted @count memberships.'));
   }
   $form_state['redirect'] = 'admin/memberships';
+}
+
+/**
+ * The registration form's text fields, with their storage table and column.
+ *
+ * Only plain text fields are searched: a select or a number has nothing a
+ * person would type into a search for somebody.
+ *
+ * @return array
+ *   Arrays of 'label', 'table' and 'column', keyed by field name.
+ */
+function _membership_entity_searchable_user_fields() {
+  $fields = array();
+  foreach (_membership_entity_registration_fields() as $field_name => $label) {
+    $field = field_info_field($field_name);
+    if (!$field || !in_array($field['type'], array('text', 'text_long', 'text_with_summary', 'email'))
+      || $field['storage']['type'] != 'field_sql_storage') {
+      continue;
+    }
+    // array(table => array(property => column)); the first column is 'value'.
+    $storage = $field['storage']['details']['sql'][FIELD_LOAD_CURRENT];
+    $columns = reset($storage);
+    $fields[$field_name] = array(
+      'label' => $label,
+      'table' => key($storage),
+      'column' => reset($columns),
+    );
+  }
+  return $fields;
+}
+
+/**
+ * Find accounts whose username, e-mail address or a registration field
+ * contains the text.
+ *
+ * @param string $string
+ *   The text typed.
+ * @param int $limit
+ *   The most accounts to return.
+ * @param array|null $within
+ *   (optional) Only these uids may be returned. NULL for any account.
+ *
+ * @return array
+ *   For each account found, keyed by uid: 'account', and 'matched', the label
+ *   and value of the registration field that matched (empty where the name or
+ *   e-mail address did).
+ */
+function _membership_entity_member_search($string, $limit = MEMBERSHIP_ENTITY_MEMBER_SEARCH_LIMIT, $within = NULL) {
+  $string = trim($string);
+  if ($string === '' || (is_array($within) && !$within)) {
+    return array();
+  }
+  $like = '%' . db_like($string) . '%';
+
+  // Each column is matched on its own: comparing columns of different tables
+  // together fails where their collations differ.
+  $matched = array();
+  $query = db_select('users', 'u')->fields('u', array('uid'))->condition('u.uid', 0, '>')
+    ->condition(db_or()->condition('u.name', $like, 'LIKE')->condition('u.mail', $like, 'LIKE'))
+    ->orderBy('u.name')->range(0, $limit);
+  if (is_array($within)) {
+    $query->condition('u.uid', $within, 'IN');
+  }
+  foreach ($query->execute()->fetchCol() as $uid) {
+    $matched[$uid] = '';
+  }
+
+  foreach (_membership_entity_searchable_user_fields() as $info) {
+    if (count($matched) >= $limit) {
+      break;
+    }
+    $rows = db_select($info['table'], 'f')
+      ->fields('f', array('entity_id', $info['column']))
+      ->condition('f.entity_type', 'user')
+      ->condition('f.' . $info['column'], $like, 'LIKE')
+      ->range(0, $limit);
+    if (is_array($within)) {
+      $rows->condition('f.entity_id', $within, 'IN');
+    }
+    $rows = $rows->execute();
+    foreach ($rows as $row) {
+      if (!isset($matched[$row->entity_id])) {
+        $matched[$row->entity_id] = $info['label'] . ': ' . $row->{$info['column']};
+      }
+    }
+  }
+
+  $results = array();
+  foreach (user_load_multiple(array_slice(array_keys($matched), 0, $limit)) as $uid => $account) {
+    $results[$uid] = array('account' => $account, 'matched' => $matched[$uid]);
+  }
+  return $results;
+}
+
+/**
+ * Describe the memberships an account already holds, briefly.
+ *
+ * @param int $uid
+ *   The account.
+ *
+ * @return array
+ *   Plain text phrases, eg "member 00097", "sub-member of 00051".
+ */
+function _membership_entity_account_memberships($uid) {
+  $phrases = array();
+  $rows = db_query('SELECT me.member_id, me.status, p.member_id AS parent_id FROM {membership_entity} me LEFT JOIN {membership_entity} p ON p.mid = me.pid WHERE me.uid = :uid ORDER BY me.mid', array(':uid' => $uid));
+  $statuses = membership_entity_get_status_list();
+  foreach ($rows as $row) {
+    $phrase = $row->parent_id
+      ? t('sub-member @id of @parent', array('@id' => $row->member_id, '@parent' => $row->parent_id))
+      : t('member @id', array('@id' => $row->member_id));
+    if ($row->status != MEMBERSHIP_ENTITY_ACTIVE && isset($statuses[$row->status])) {
+      $phrase .= ' (' . backdrop_strtolower($statuses[$row->status]) . ')';
+    }
+    $phrases[] = $phrase;
+  }
+  return $phrases;
+}
+
+/**
+ * The account's e-mail address as shown to an administrator.
+ *
+ * @param User $account
+ *   The account.
+ *
+ * @return string
+ *   The address, or a note that the member has none.
+ */
+function _membership_entity_account_mail_text($account) {
+  if (module_exists('membership_entity_postal') && membership_entity_postal_is_postal_account($account)) {
+    return t('no e-mail address (postal member)');
+  }
+  return (string) $account->mail;
+}
+
+/**
+ * Menu callback: suggestions for the existing-account search.
+ *
+ * Each suggestion shows enough to tell two people of the same name apart: the
+ * name, the e-mail address, the field that matched where it was not either of
+ * those, and any membership the account already holds. Its value is the
+ * username, which is what the member select resolves.
+ *
+ * @param string $string
+ *   The text typed.
+ *
+ * @return array
+ *   Suggestion HTML keyed by username, for backdrop_json_deliver().
+ */
+function membership_entity_member_autocomplete($string = '') {
+  return _membership_entity_member_autocomplete_matches($string);
+}
+
+/**
+ * How many accounts a search would find, without the limit.
+ *
+ * @param string $string
+ *   The text typed.
+ * @param array|null $within
+ *   (optional) Only these uids count. NULL for any account.
+ *
+ * @return int
+ *   The number of distinct accounts matching.
+ */
+function _membership_entity_member_search_count($string, $within = NULL) {
+  $string = trim($string);
+  if ($string === '' || (is_array($within) && !$within)) {
+    return 0;
+  }
+  $like = '%' . db_like($string) . '%';
+
+  // Separate queries, for the same collation reason as the search itself.
+  $query = db_select('users', 'u')->fields('u', array('uid'))->condition('u.uid', 0, '>')
+    ->condition(db_or()->condition('u.name', $like, 'LIKE')->condition('u.mail', $like, 'LIKE'));
+  if (is_array($within)) {
+    $query->condition('u.uid', $within, 'IN');
+  }
+  $uids = array_flip($query->execute()->fetchCol());
+
+  foreach (_membership_entity_searchable_user_fields() as $info) {
+    $rows = db_select($info['table'], 'f')
+      ->fields('f', array('entity_id'))
+      ->condition('f.entity_type', 'user')
+      ->condition('f.' . $info['column'], $like, 'LIKE');
+    if (is_array($within)) {
+      $rows->condition('f.entity_id', $within, 'IN');
+    }
+    $uids += array_flip($rows->execute()->fetchCol());
+  }
+  return count($uids);
+}
+
+/**
+ * Build autocomplete suggestions, saying so when some were left out.
+ *
+ * Where more accounts match than are listed, a first line says how many were
+ * found and how to narrow it. Core's autocomplete makes every line pickable,
+ * so that line's value is what was typed: picking it changes nothing.
+ *
+ * @param string $string
+ *   The text typed.
+ * @param array|null $within
+ *   (optional) Only these uids may be listed. NULL for any account.
+ *
+ * @return array
+ *   Suggestion HTML keyed by the value each puts in the field.
+ */
+function _membership_entity_member_autocomplete_matches($string, $within = NULL) {
+  $limit = MEMBERSHIP_ENTITY_MEMBER_SEARCH_LIMIT;
+  $results = _membership_entity_member_search($string, $limit, $within);
+
+  $matches = array();
+  if (count($results) >= $limit && ($total = _membership_entity_member_search_count($string, $within)) > $limit) {
+    // A trailing space keeps this key apart from any username, and is trimmed
+    // away again before the value is used.
+    $matches[trim($string) . ' '] = '<div class="membership-entity-search-more"><strong>'
+      . t('Found @total — only showing the first @limit.', array('@total' => $total, '@limit' => $limit))
+      . '</strong><br /><small>'
+      . t('Type more of a name, e-mail address or postcode to narrow it down.')
+      . '</small></div>';
+  }
+  foreach ($results as $result) {
+    $matches[$result['account']->name] = _membership_entity_account_label($result['account'], $result['matched']);
+  }
+  return $matches;
+}
+
+/**
+ * One line identifying an account to an administrator.
+ *
+ * @param User $account
+ *   The account.
+ * @param string $matched
+ *   (optional) "Label: value" of a field worth showing, such as the one a
+ *   search matched.
+ *
+ * @return string
+ *   HTML: name, e-mail address, the extra field, and any memberships held.
+ */
+function _membership_entity_account_label($account, $matched = '') {
+  $parts = array(user_format_name($account));
+  if (user_format_name($account) != $account->name) {
+    $parts[0] .= ' (' . $account->name . ')';
+  }
+  $parts[] = _membership_entity_account_mail_text($account);
+  if ($matched !== '') {
+    $parts[] = $matched;
+  }
+  $label = check_plain(implode(' — ', $parts));
+  if ($memberships = _membership_entity_account_memberships($account->uid)) {
+    $label .= ' <em>[' . check_plain(implode(', ', $memberships)) . ']</em>';
+  }
+  return $label;
+}
+
+/**
+ * Accounts that may belong to the person whose account is about to be made.
+ *
+ * Compared on the fields the username pattern is built from (typically first
+ * and last name), all of which must match, ignoring case. Without a pattern
+ * naming fields there is nothing reliable to compare, and nothing is reported.
+ * A clash of e-mail address is refused outright elsewhere.
+ *
+ * @param array $values
+ *   The submitted new_account values.
+ *
+ * @return array
+ *   Matching accounts keyed by uid, at most ten.
+ */
+function _membership_entity_possible_duplicates(array $values) {
+  $pattern = (string) config_get('membership_entity.settings', 'new_account_username');
+  if (!preg_match_all('/\[user:(field_[a-z0-9_]+)\]/', $pattern, $tokens)) {
+    return array();
+  }
+
+  $fields = _membership_entity_searchable_user_fields();
+  $query = db_select('users', 'u')->fields('u', array('uid'))->condition('u.uid', 0, '>')->range(0, 10);
+  foreach (array_unique($tokens[1]) as $i => $field_name) {
+    $items = isset($values['fields'][$field_name]) && is_array($values['fields'][$field_name]) ? reset($values['fields'][$field_name]) : NULL;
+    $value = isset($items[0]['value']) ? trim($items[0]['value']) : '';
+    // Every field of the pattern has to be filled in for a comparison to mean
+    // anything, and has to be one we can search.
+    if ($value === '' || !isset($fields[$field_name])) {
+      return array();
+    }
+    $alias = 'f' . $i;
+    $query->join($fields[$field_name]['table'], $alias, "$alias.entity_id = u.uid AND $alias.entity_type = 'user'");
+    $query->where("LOWER($alias." . $fields[$field_name]['column'] . ') = LOWER(:v' . $i . ')', array(':v' . $i => $value));
+  }
+
+  $uids = $query->execute()->fetchCol();
+  return $uids ? user_load_multiple($uids) : array();
+}
+
+/**
+ * A summary of an account, for checking the right person has been chosen.
+ *
+ * @param User $account
+ *   The account.
+ *
+ * @return string
+ *   HTML.
+ */
+function membership_entity_member_summary($account) {
+  $build = array(
+    '#type' => 'container',
+    '#attributes' => array('class' => array('membership-entity-member-summary')),
+  );
+  // Explicit weights: rendered fields carry their display weights, which would
+  // otherwise sort them after the link.
+  $build['name'] = array(
+    '#markup' => '<p><strong>' . check_plain(user_format_name($account)) . '</strong> — ' . check_plain(_membership_entity_account_mail_text($account)) . '</p>',
+    '#weight' => -1000,
+  );
+  $weight = 0;
+  foreach (array_keys(_membership_entity_registration_fields()) as $field_name) {
+    $build[$field_name] = field_view_field('user', $account, $field_name, array('label' => 'inline'));
+    $build[$field_name]['#weight'] = $weight++;
+  }
+  if ($memberships = _membership_entity_account_memberships($account->uid)) {
+    $build['memberships'] = array(
+      '#markup' => '<p>' . t('Already holds: @list', array('@list' => implode(', ', $memberships))) . '</p>',
+      '#weight' => 900,
+    );
+  }
+  $build['edit'] = array(
+    '#access' => user_access('administer users'),
+    '#weight' => 1000,
+    '#type' => 'link',
+    '#title' => t('Edit account'),
+    '#href' => 'user/' . $account->uid . '/edit',
+    '#attributes' => array('target' => '_blank', 'rel' => 'noopener'),
+    '#suffix' => ' ' . t('(opens in a new tab)'),
+  );
+  return backdrop_render($build);
+}
+
+/**
+ * Menu callback: the summary of the account named in ?name=, as JSON.
+ *
+ * @return array
+ *   'html', empty where no account has that name.
+ */
+function membership_entity_member_summary_page() {
+  $name = isset($_GET['name']) ? trim((string) $_GET['name']) : '';
+  $account = $name !== '' ? user_load_by_name($name) : FALSE;
+  if (!$account && valid_email_address($name)) {
+    $account = user_load_by_mail($name);
+  }
+  return array('html' => $account ? membership_entity_member_summary($account) : '');
+}
+
+/**
+ * The accounts holding memberships beneath a given membership, at any status.
+ *
+ * @param int $pid
+ *   The parent membership id.
+ *
+ * @return array
+ *   User ids.
+ */
+function _membership_entity_scoped_uids($pid) {
+  // Only members the current user may view. Being allowed to add members does
+  // not by itself mean being allowed to read the existing members' details,
+  // which the search and its summary show.
+  $mids = db_query('SELECT mid FROM {membership_entity} WHERE pid = :pid AND uid > 0', array(':pid' => $pid))->fetchCol();
+  $uids = array();
+  foreach (membership_entity_load_multiple($mids) as $membership) {
+    if (membership_entity_access('view', $membership)) {
+      $uids[$membership->uid] = $membership->uid;
+    }
+  }
+  return array_values($uids);
+}
+
+/**
+ * Find the account a scoped search names: one of the membership's own people
+ * by username, or anyone by their exact e-mail address.
+ *
+ * Nothing else resolves, so somebody limited to one membership cannot test
+ * whether a username exists elsewhere; an e-mail address they already know is
+ * the only way to reach an account outside it.
+ *
+ * @param MembershipEntity $parent
+ *   The membership members are being added to.
+ * @param string $value
+ *   A username or an e-mail address.
+ *
+ * @return User|false
+ *   The account, or FALSE.
+ */
+function _membership_entity_scoped_resolve(MembershipEntity $parent, $value) {
+  $value = trim((string) $value);
+  if ($value === '') {
+    return FALSE;
+  }
+  if (valid_email_address($value) && ($account = user_load_by_mail($value))) {
+    return $account;
+  }
+  $account = user_load_by_name($value);
+  return ($account && in_array($account->uid, _membership_entity_scoped_uids($parent->mid))) ? $account : FALSE;
+}
+
+/**
+ * Menu callback: suggestions from one membership's own people.
+ *
+ * @param MembershipEntity $parent
+ *   The membership members are being added to.
+ * @param string $string
+ *   The text typed.
+ *
+ * @return array
+ *   Suggestion HTML keyed by username.
+ */
+function membership_entity_scoped_member_autocomplete(MembershipEntity $parent, $string = '') {
+  if (user_access('administer memberships')) {
+    return membership_entity_member_autocomplete($string);
+  }
+  return _membership_entity_member_autocomplete_matches($string, _membership_entity_scoped_uids($parent->mid));
+}
+
+/**
+ * Menu callback: the summary for a scoped search, as JSON.
+ *
+ * One of the membership's own people gets the full summary. Someone found by
+ * e-mail address from outside it is shown by name only, with whether they can
+ * be added here; their address and other details stay private.
+ *
+ * @param MembershipEntity $parent
+ *   The membership members are being added to.
+ *
+ * @return array
+ *   'html'.
+ */
+function membership_entity_scoped_member_summary_page(MembershipEntity $parent) {
+  if (user_access('administer memberships')) {
+    return membership_entity_member_summary_page();
+  }
+  $value = isset($_GET['name']) ? $_GET['name'] : '';
+  $account = _membership_entity_scoped_resolve($parent, $value);
+  if (!$account) {
+    return array('html' => '');
+  }
+  if (in_array($account->uid, _membership_entity_scoped_uids($parent->mid))) {
+    return array('html' => membership_entity_member_summary($account));
+  }
+  $html = '<div class="membership-entity-member-summary"><p><strong>' . check_plain(user_format_name($account)) . '</strong> — ' . t('has an account.') . '</p>';
+  if ($problem = _membership_entity_scoped_account_problem($parent, $account)) {
+    $html .= '<p>' . $problem . '</p>';
+  }
+  return array('html' => $html . '</div>');
+}
+
+/**
+ * Why an account cannot be added beneath a membership by someone limited to it.
+ *
+ * Someone already beneath it is renewed, not added again. Someone beneath a
+ * different membership is a matter for the site administrator, who decides
+ * whether a person may belong to two.
+ *
+ * @param MembershipEntity $parent
+ *   The membership members are being added to.
+ * @param User $account
+ *   The account chosen.
+ *
+ * @return string
+ *   The reason, as HTML, or '' if it may be added.
+ */
+function _membership_entity_scoped_account_problem(MembershipEntity $parent, $account) {
+  $rows = db_query('SELECT member_id, pid FROM {membership_entity} WHERE uid = :uid AND pid > 0', array(':uid' => $account->uid))->fetchAll();
+  foreach ($rows as $row) {
+    if ($row->pid == $parent->mid) {
+      $renewals = 'membership/' . $parent->mid . '/renewals';
+      return t('%name is already a member here (%id). To bring them back, renew them rather than adding them again.', array(
+        '%name' => user_format_name($account),
+        '%id' => $row->member_id,
+      )) . (backdrop_valid_path($renewals) ? ' ' . l(t('Go to Renewals'), $renewals) : '');
+    }
+  }
+  if ($rows) {
+    return t('%name already belongs to another membership. Ask the site administrator to add them here.', array(
+      '%name' => user_format_name($account),
+    ));
+  }
+  return '';
 }

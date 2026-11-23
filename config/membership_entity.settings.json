@@ -4,5 +4,6 @@
     "membership_entity_settings": [],
     "join_path": "",
     "renew_path": "",
-    "member_id_start": ""
+    "member_id_start": "",
+    "new_account_username": ""
 }

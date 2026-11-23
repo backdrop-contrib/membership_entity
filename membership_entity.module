@@ -14,6 +14,11 @@ define('MEMBERSHIP_ENTITY_CANCELLED', 2);
 define('MEMBERSHIP_ENTITY_PENDING', 3);
 
 /**
+ * The most accounts listed by the member search on the membership form.
+ */
+define('MEMBERSHIP_ENTITY_MEMBER_SEARCH_LIMIT', 20);
+
+/**
  * Retrieve a list of membership status options.
  */
 function membership_entity_get_status_list() {
@@ -120,6 +125,7 @@ function membership_entity_permission() {
   $permissions = array(
     'administer memberships' => array(
       'title' => t('Administer memberships'),
+      'description' => t('Includes searching every account on the site, members or not, by name, e-mail address or registration details, and seeing their e-mail address and those details when choosing a member.'),
       'restrict access' => TRUE,
     ),
     'delete retained memberships' => array(
@@ -259,6 +265,47 @@ function membership_entity_menu() {
     'access arguments' => array('administer memberships'),
     'type' => MENU_LOCAL_TASK,
     'weight' => 50,
+    'file' => 'membership_entity.pages.inc',
+  );
+
+  // Finding an existing account for a membership: by name, e-mail or any
+  // registration field, with enough shown to tell people apart. Administrators
+  // only - it searches every account on the site.
+  $items['membership/member-autocomplete'] = array(
+    'page callback' => 'membership_entity_member_autocomplete',
+    'access arguments' => array('administer memberships'),
+    'type' => MENU_CALLBACK,
+    'delivery callback' => 'backdrop_json_deliver',
+    'file' => 'membership_entity.pages.inc',
+  );
+  // The chosen account's details, for the membership form. Takes ?name=.
+  $items['membership/member-summary'] = array(
+    'page callback' => 'membership_entity_member_summary_page',
+    'access arguments' => array('administer memberships'),
+    'type' => MENU_CALLBACK,
+    'delivery callback' => 'backdrop_json_deliver',
+    'file' => 'membership_entity.pages.inc',
+  );
+
+  // The same two, for someone adding a member to one particular membership
+  // (an association secretary): limited to that membership's own people, plus
+  // an exact e-mail address they already know.
+  $items['membership/%membership_entity/member-autocomplete'] = array(
+    'page callback' => 'membership_entity_scoped_member_autocomplete',
+    'page arguments' => array(1),
+    'access callback' => 'membership_entity_scoped_member_access',
+    'access arguments' => array(1),
+    'type' => MENU_CALLBACK,
+    'delivery callback' => 'backdrop_json_deliver',
+    'file' => 'membership_entity.pages.inc',
+  );
+  $items['membership/%membership_entity/member-summary'] = array(
+    'page callback' => 'membership_entity_scoped_member_summary_page',
+    'page arguments' => array(1),
+    'access callback' => 'membership_entity_scoped_member_access',
+    'access arguments' => array(1),
+    'type' => MENU_CALLBACK,
+    'delivery callback' => 'backdrop_json_deliver',
     'file' => 'membership_entity.pages.inc',
   );
 
@@ -532,6 +579,10 @@ function membership_entity_view($membership, $view_mode = 'full', $langcode = NU
     $account = !empty($membership->uid) ? user_load($membership->uid) : FALSE;
     $membership->content['uid'] = array(
       '#weight' => -10,
+      // Label and value on one line: see css/membership_entity.css.
+      '#type' => 'container',
+      '#attributes' => array('class' => array('membership-entity-inline')),
+      '#attached' => array('css' => array(backdrop_get_path('module', 'membership_entity') . '/css/membership_entity.css')),
       'label' => array(
         '#theme_wrappers' => array('container'),
         '#attributes' => array('class' => array('membership-entity-label')),
@@ -567,6 +618,9 @@ function membership_entity_view($membership, $view_mode = 'full', $langcode = NU
   if ($view_mode == 'full' && !empty($membership->created)) {
     $membership->content['joined'] = array(
       '#weight' => -9,
+      '#type' => 'container',
+      '#attributes' => array('class' => array('membership-entity-inline')),
+      '#attached' => array('css' => array(backdrop_get_path('module', 'membership_entity') . '/css/membership_entity.css')),
       'label' => array(
         '#theme_wrappers' => array('container'),
         '#attributes' => array('class' => array('membership-entity-label')),
@@ -1379,6 +1433,28 @@ function membership_entity_member_select_process($element, &$form_state, $comple
       '#id' => $id,
     );
 
+    // Show who has been chosen, so the right person can be confirmed before
+    // saving. Filled in by the server for a value already present, and by
+    // membership_entity_member_summary.js as a suggestion is picked.
+    if (!empty($element['#member_summary']) && $delta == 0) {
+      module_load_include('inc', 'membership_entity', 'membership_entity.pages');
+      $summary_id = backdrop_html_id($element['#id'] . '-summary');
+      $name = isset($element['#value'][0]['value']) ? trim((string) $element['#value'][0]['value']) : '';
+      $chosen = $name !== '' ? user_load_by_name($name) : FALSE;
+      // A scoped search shows its own, more limited summary; the server can
+      // only render the full one here, so leave it to the script there.
+      if (!empty($element['#member_summary_url']) && $element['#member_summary_url'] != 'membership/member-summary') {
+        $chosen = FALSE;
+      }
+      $item['value']['#attributes']['class'][] = 'membership-entity-member-summary-source';
+      $item['value']['#attributes']['data-summary-target'] = $summary_id;
+      $item['value']['#attributes']['data-summary-url'] = url(!empty($element['#member_summary_url']) ? $element['#member_summary_url'] : 'membership/member-summary');
+      $item['value']['#suffix'] = '<div id="' . $summary_id . '" class="membership-entity-member-summary-target" aria-live="polite">'
+        . ($chosen ? membership_entity_member_summary($chosen) : '') . '</div>';
+      $item['value']['#attached']['js'][] = backdrop_get_path('module', 'membership_entity') . '/js/membership_entity_member_summary.js';
+      $item['value']['#attached']['css'][] = backdrop_get_path('module', 'membership_entity') . '/css/membership_entity.css';
+    }
+
     if ($element['#cardinality'] > 1 || $element['#cardinality'] == FIELD_CARDINALITY_UNLIMITED) {
       // We name the element '_weight' to avoid clashing with elements
       // defined by widget.
@@ -1461,7 +1537,12 @@ function membership_entity_member_select_validate($element, &$form_state) {
 
       if (!empty($value['value'])) {
         $name = $value['value'];
-        if ($uid = db_query('SELECT uid FROM {users} WHERE name = :name', array(':name' => $name))->fetchField()) {
+        $uid = db_query('SELECT uid FROM {users} WHERE name = :name', array(':name' => $name))->fetchField();
+        // Optionally an exact e-mail address names the account too.
+        if (!$uid && !empty($element['#resolve_mail']) && valid_email_address(trim($name))) {
+          $uid = db_query('SELECT uid FROM {users} WHERE mail = :mail', array(':mail' => trim($name)))->fetchField();
+        }
+        if ($uid) {
           // Save the value as a uid instead of username.
           $values[$delta] = $uid;
         }
@@ -1685,6 +1766,32 @@ function membership_entity_effective_status(MembershipEntity $membership) {
 
   backdrop_alter('membership_entity_effective_status', $status, $membership);
   return $status;
+}
+
+/**
+ * Access callback: the account search scoped to one membership's people.
+ *
+ * For site administrators, and for whoever may add members beneath that
+ * membership.
+ *
+ * @param MembershipEntity $parent
+ *   The membership members are being added to.
+ *
+ * @return bool
+ *   TRUE if the scoped search and summary may be used.
+ */
+function membership_entity_scoped_member_access(MembershipEntity $parent) {
+  if (user_access('administer memberships')) {
+    return TRUE;
+  }
+  // Two levels only, so only a top-level membership has members to search.
+  if (!empty($parent->pid)) {
+    return FALSE;
+  }
+  // Whoever may add a member beneath this membership, creating their account
+  // if need be (membership_entity_hierarchy grants that to its secretary).
+  $stub = entity_create('membership_entity', array('pid' => $parent->mid, 'type' => $parent->type));
+  return membership_entity_may_create_member_account($stub);
 }
 
 /**

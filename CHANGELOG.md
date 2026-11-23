@@ -1,5 +1,36 @@
 # Changelog - Membership Entity
 
+## 1.x-1.3.0 (2026-11-23)
+
+Git tag: `1.x-1.3.0`.
+
+### Security
+- Hierarchy: the association-scoped member search lists only members the user may view, not everyone beneath a membership they may add to.
+- "Add sub-members" is marked "Give to trusted roles only"; "Administer memberships", "Add sub-members" and "View sub-members" say what account details they reveal.
+- Stored term modifiers and type settings are unserialized without allowing objects.
+
+### Tests
+- New: fixed renewal date in summer time; creating and finding member accounts; sub-members list, button and tab; sub-member renewal term; association secretary and existing accounts. Hierarchy has tests for the first time.
+
+### Added
+- Hierarchy: a Sub-members tab on a membership (a View with a search and pager), for site admins and whoever may view that membership's sub-members. Update 1000 installs the View.
+
+### Changed
+- Membership form, "An existing user account": searches name, e-mail address and the registration-form text fields (not just the start of the username); suggestions show e-mail, the matching field and any memberships held. Administrators only.
+- Membership form, member search: lists up to 20 accounts, and when more match, a first line says "Found N — only showing the first 20" with a hint to narrow it.
+- Membership form, "An existing user account": the chosen account's details are shown under the search, with an "Edit account" link (for those who may administer users).
+- Membership form, adding a sub-member without "administer memberships" (an association secretary): "Someone who already has an account" searches only that membership's own people, or takes anyone's exact e-mail address (shown by name only). Someone already beneath it is pointed to Renewals; someone beneath another membership has to be added by the site administrator.
+- Membership form, "Someone new": an e-mail address already in use names its account (for administrators); a name matching an existing account (on the username pattern's fields) must be confirmed as a different person before a new account is made.
+- Membership form, "Someone new": shows the user fields the site has on its registration form (name, address, phone...), saved to the new account, so it no longer needs a second visit.
+- Membership form, "Someone new": no username to invent; it is made from a token pattern set at Memberships > Settings (e.g. `[user:field_first_name] [user:field_last_name]`), else the e-mail address, with a number added if taken. The settings page lists the registration-form fields as tokens and refuses a field that is not on it. Admins who may administer users can still set a username under "Username".
+- Hierarchy: the membership page shows "Sub-members: N" with the list from the same View for up to 5 sub-members; above that, a "View sub-members" button to the tab instead of a long list. It is now an extra field ("Sub-members" in Manage Display), placed below the term list by default.
+- Membership page: the term list and the sub-members are each in a bordered section (`membership-entity-section`); "Primary Member", "Joined" and "Belongs to" show label and value on one line.
+
+### Fixed
+- Hierarchy: the Sub-members tab search found nothing where the member id and username columns have different collations. It now matches field by field (new "Search fields (membership)" filter) and also searches the name held on memberships without an account. Update 1001 fixes installed copies of the View.
+- Term: with a fixed renewal date, a term starting on the renewal day in summer time ended a year early (1 April 2026 + 1 year ended 31 March 2026). The renewal date is now applied in the type's local timezone.
+- Hierarchy: a sub-member's copied term could end short of the parent's (modifiers not copied, or the two types end terms differently), so it never showed as renewed and every "Mark as renewed" added another identical term. The copy now carries the parent's modifiers and is brought onto the parent's end date.
+
 ## 1.x-1.2.3 (2026-11-22)
 
 Git tag: `1.x-1.2.3`.

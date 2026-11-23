@@ -460,20 +460,28 @@ function membership_entity_term_membership_entity_term_end_date_alter(&$end, $te
 
   $settings = membership_entity_get_bundle_settings($term->membership_entity_type);
   $boundary = empty($settings['fixed_renewal_date']) ? FALSE : _membership_entity_term_renewal_boundary($settings['fixed_renewal_date']);
-  if ($boundary) {
-    _membership_entity_term_snap_to_renewal($end, $term, $boundary);
-  }
-
   $ends = membership_entity_term_ends($settings);
-  if ($ends == 'start_time') {
+  if (!$boundary && $ends == 'start_time') {
     return;
   }
 
   // From here on the day is the local one: see
-  // membership_entity_term_local_timezone().
+  // membership_entity_term_local_timezone(). The renewal date is a local date
+  // too, so the snap must happen after this. Snapped in UTC, a term starting
+  // 1 April in British summer time starts at 23:00 on 31 March, its year lands
+  // exactly on the renewal instant, and it snaps back a whole year.
   $stored = $end->getTimezone();
   $local = membership_entity_term_local_timezone($settings, $term);
   $end->setTimezone($local);
+
+  if ($boundary) {
+    _membership_entity_term_snap_to_renewal($end, $term, $boundary);
+  }
+
+  if ($ends == 'start_time') {
+    $end->setTimezone($stored);
+    return;
+  }
 
   if ($boundary) {
     // A snapped renewal is the midnight after the last day of cover, so it
@@ -538,7 +546,9 @@ function _membership_entity_term_snap_to_renewal(&$end, $term, array $boundary) 
   // Everything below stays inside $end's own timezone. Working in timestamps
   // would silently reintroduce the server's, and midnight is exactly the moment
   // where that difference shows.
-  $start = new DateTime($term->start, $end->getTimezone());
+  // The start is stored in the term's own timezone; compare it in $end's.
+  $start = new DateTime($term->start, new DateTimeZone(empty($term->timezone) ? 'UTC' : $term->timezone));
+  $start->setTimezone($end->getTimezone());
 
   // Snap back to the last renewal on or before the calculated end. Someone
   // joining in August on a one year term is covered to the following 31 March,
@@ -1007,9 +1017,14 @@ function membership_entity_term_membership_entity_view($membership, $view_mode, 
     $settings = membership_entity_get_bundle_settings($membership->type);
     list($view_name, $display_id) = _membership_entity_term_ledger_view($settings);
 
+    // Boxed as a section of its own, like the sub-members list, so the two
+    // tables do not run together on the page.
     $membership->content['membership_terms'] = array(
-      '#markup' => views_embed_view($view_name, $display_id, $membership->mid),
+      '#type' => 'container',
+      '#attributes' => array('class' => array('membership-entity-section', 'membership-entity-terms-section')),
+      '#attached' => array('css' => array(backdrop_get_path('module', 'membership_entity') . '/css/membership_entity.css')),
       '#weight' => isset($display['membership_terms']['weight']) ? $display['membership_terms']['weight'] : 10,
+      'list' => array('#markup' => views_embed_view($view_name, $display_id, $membership->mid)),
     );
   }
 

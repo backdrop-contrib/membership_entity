@@ -311,7 +311,7 @@ function membership_entity_type_get_types($machine_name = NULL) {
     if (empty($types)) {
       $results = db_query('SELECT id, type, label, weight, description, data, status, module FROM {membership_entity_type}');
       foreach ($results as $result) {
-        $result->data = unserialize($result->data);
+        $result->data = unserialize($result->data, array('allowed_classes' => FALSE));
         $types[$result->type] = $result;
       }
     }

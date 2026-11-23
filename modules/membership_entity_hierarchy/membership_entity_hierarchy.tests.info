@@ -1,0 +1,17 @@
+[MembershipEntityHierarchyPageTestCase]
+name = Sub-members on a membership
+description = Test the sub-members list, button and tab on a membership.
+group = Membership Entity Hierarchy
+file = membership_entity_hierarchy.test
+
+[MembershipEntityHierarchyCopyTermTestCase]
+name = Sub-member renewal term
+description = Test the term a sub-member is given when marked as renewed.
+group = Membership Entity Hierarchy
+file = membership_entity_hierarchy.test
+
+[MembershipEntityHierarchySecretaryTestCase]
+name = Secretary and existing accounts
+description = Test what an association secretary may do with existing accounts.
+group = Membership Entity Hierarchy
+file = membership_entity_hierarchy.test

@@ -27,3 +27,9 @@ name = Membership term access
 description = Test membership term access control.
 group = Membership Entity Term
 file = membership_entity_term.test
+
+[MembershipEntityTermFixedRenewalTestCase]
+name = Membership term fixed renewal date
+description = Test a fixed renewal date in a timezone with summer time.
+group = Membership Entity Term
+file = membership_entity_term.test

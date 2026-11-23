@@ -16,6 +16,22 @@
  */
 
 /**
+ * The most sub-members listed in full on a membership page.
+ *
+ * Above this the page shows a count and a button to the Sub-members tab.
+ */
+define('MEMBERSHIP_ENTITY_HIERARCHY_INLINE_MAX', 5);
+
+/**
+ * Implements hook_autoload_info().
+ */
+function membership_entity_hierarchy_autoload_info() {
+  return array(
+    'views_handler_filter_membership_search' => 'views/views_handler_filter_membership_search.inc',
+  );
+}
+
+/**
  * Implements hook_views_api().
  */
 function membership_entity_hierarchy_views_api() {
@@ -46,13 +62,15 @@ function membership_entity_hierarchy_permission() {
     $perms += array(
       $type_name . ' view sub-memberships' => array(
         'title' => t('View the sub-members of their own %type membership', array('%type' => $type->label)),
+        'description' => t('Includes their members\' e-mail addresses and registration details (address, phone and so on) when searching for a member to add.'),
       ),
       $type_name . ' edit sub-memberships' => array(
         'title' => t('Edit the sub-members of their own %type membership', array('%type' => $type->label)),
       ),
       $type_name . ' create sub-memberships' => array(
         'title' => t('Add sub-members to their own %type membership', array('%type' => $type->label)),
-        'description' => t('The new membership is always attached to their own; they cannot attach it elsewhere.'),
+        'description' => t('The new membership is always attached to their own; they cannot attach it elsewhere. They can create the member\'s account, and can add someone who already has an account by entering that person\'s exact e-mail address. Once added, that person\'s account details (address, phone and so on) are visible to them, as for any of their members.'),
+        'restrict access' => TRUE,
       ),
       $type_name . ' detach sub-memberships' => array(
         'title' => t('Remove a sub-member from their own %type membership', array('%type' => $type->label)),
@@ -173,6 +191,35 @@ function membership_entity_hierarchy_menu_alter(&$items) {
     $items['membership/%/renewals']['access callback'] = 'membership_entity_hierarchy_renewals_access';
     $items['membership/%/renewals']['access arguments'] = array(1);
   }
+
+  // The Sub-members tab, for the same reason.
+  if (isset($items['membership/%/sub-members'])) {
+    $items['membership/%/sub-members']['access callback'] = 'membership_entity_hierarchy_sub_members_access';
+    $items['membership/%/sub-members']['access arguments'] = array(1);
+  }
+}
+
+/**
+ * Whether the Sub-members tab should appear on a membership, and for whom.
+ *
+ * Shown only on a membership that has sub-members, to site administrators and
+ * to whoever may view that membership's sub-members (a household head or
+ * association secretary). Absent elsewhere, rather than offering an empty
+ * list.
+ *
+ * @param int $mid
+ *   The membership id from the path.
+ *
+ * @return bool
+ *   TRUE if the tab should be shown.
+ */
+function membership_entity_hierarchy_sub_members_access($mid) {
+  if (!is_numeric($mid) || !membership_entity_child_count($mid)) {
+    return FALSE;
+  }
+
+  return user_access('administer memberships')
+    || membership_entity_hierarchy_manages_sub_membership('view', $mid);
 }
 
 /**
@@ -264,6 +311,9 @@ function membership_entity_hierarchy_membership_entity_view($membership, $view_m
   if (!empty($membership->pid) && $parent = membership_entity_load($membership->pid)) {
     $membership->content['parent_membership'] = array(
       '#weight' => -8,
+      '#type' => 'container',
+      '#attributes' => array('class' => array('membership-entity-inline')),
+      '#attached' => array('css' => array(backdrop_get_path('module', 'membership_entity') . '/css/membership_entity.css')),
       'label' => array(
         '#theme_wrappers' => array('container'),
         '#attributes' => array('class' => array('membership-entity-label')),
@@ -284,52 +334,107 @@ function membership_entity_hierarchy_membership_entity_view($membership, $view_m
     );
   }
 
-  if ($child_mids = membership_entity_child_mids($membership->mid)) {
-    $statuses = membership_entity_get_status_list();
-    $links = array();
-    $needing_attention = 0;
+  // An extra field, so Manage Display can move or hide it like the term list.
+  $display = field_extra_fields_get_display('membership_entity', $membership->type, $view_mode);
+  if (isset($display['child_memberships']) && empty($display['child_memberships']['visible'])) {
+    return;
+  }
 
-    foreach (membership_entity_load_multiple($child_mids) as $child) {
-      // The status that actually governs their access, not the stored one.
-      // A sub-member reading "Active" while the membership above them has
-      // lapsed is exactly the confusion the cascade was built to resolve, and
-      // this is the page where somebody would go looking.
-      $effective = membership_entity_effective_status($child);
-      if ($effective != MEMBERSHIP_ENTITY_ACTIVE) {
-        $needing_attention++;
-      }
+  if ($count = membership_entity_child_count($membership->mid)) {
+    $element = _membership_entity_hierarchy_sub_members_summary($membership, $count);
+    $element['#weight'] = isset($display['child_memberships']['weight']) ? $display['child_memberships']['weight'] : 20;
+    $membership->content['child_memberships'] = $element;
+  }
+}
 
-      $links[] = array(
-        'title' => t('@id — @name (@status)', array(
-          '@id' => $child->member_id,
-          '@name' => membership_entity_member_name($child),
-          '@status' => $statuses[$effective],
-        )),
-        'href' => 'membership/' . $child->mid,
-        'attributes' => array(
-          'class' => array('membership-entity-child', 'membership-' . backdrop_html_class($statuses[$effective])),
-        ),
-      );
-    }
-
-    $membership->content['child_memberships'] = array(
-      '#weight' => -6,
-      'label' => array(
-        '#theme_wrappers' => array('container'),
-        '#attributes' => array('class' => array('membership-entity-label')),
-        '#markup' => $needing_attention
-          ? format_plural($needing_attention,
-            t('Sub-members (@count not currently active):', array('@count' => $needing_attention)),
-            t('Sub-members (@count not currently active):', array('@count' => $needing_attention))) . '&nbsp;'
-          : format_plural(count($links), 'Sub-member:', 'Sub-members:') . '&nbsp;',
-      ),
-      'links' => array(
-        '#theme' => 'links',
-        '#links' => $links,
-        '#attributes' => array('class' => array('membership-entity-child-memberships')),
-      ),
+/**
+ * Implements hook_field_extra_fields().
+ */
+function membership_entity_hierarchy_field_extra_fields() {
+  $fields = array();
+  foreach (membership_entity_get_bundles() as $type) {
+    $fields['membership_entity'][$type->type]['display']['child_memberships'] = array(
+      'label' => t('Sub-members'),
+      'description' => t('The memberships that belong to this one: listed, or a count and a button when there are many.'),
+      // Below the term list (10), which belongs to the membership itself.
+      'weight' => 20,
     );
   }
+  return $fields;
+}
+
+/**
+ * The sub-members section of a membership page.
+ *
+ * A household's few sub-members are listed in place, from the inline display
+ * of the sub-members View. An association may have dozens, which would push
+ * everything else off the page, so above MEMBERSHIP_ENTITY_HIERARCHY_INLINE_MAX
+ * the page shows a count and a button to the Sub-members tab, which is the same
+ * View with a search and a pager. One View serves both, so the list looks the
+ * same either way.
+ *
+ * @param MembershipEntity $membership
+ *   The parent membership being viewed.
+ * @param int $count
+ *   How many sub-members it has.
+ *
+ * @return array
+ *   A render array.
+ */
+function _membership_entity_hierarchy_sub_members_summary(MembershipEntity $membership, $count) {
+  // Effective status, not stored: a sub-member whose own status is active is
+  // still not covered while the membership above has lapsed. Counted in SQL
+  // rather than by loading every sub-member, which is the cost this avoids.
+  if ($membership->status != MEMBERSHIP_ENTITY_ACTIVE) {
+    $inactive = $count;
+  }
+  else {
+    $inactive = (int) db_query('SELECT COUNT(mid) FROM {membership_entity} WHERE pid = :pid AND status <> :active', array(
+      ':pid' => $membership->mid,
+      ':active' => MEMBERSHIP_ENTITY_ACTIVE,
+    ))->fetchField();
+  }
+
+  $label = $inactive
+    ? t('Sub-members: @count (@inactive not currently active)', array('@count' => $count, '@inactive' => $inactive))
+    : t('Sub-members: @count', array('@count' => $count));
+
+  // The label's text is a child, not the container's own #markup, because
+  // #markup on an element replaces its children and the button goes beside it.
+  $element = array(
+    '#type' => 'container',
+    '#attributes' => array('class' => array('membership-entity-section', 'membership-entity-sub-members-section')),
+    '#attached' => array('css' => array(backdrop_get_path('module', 'membership_entity') . '/css/membership_entity.css')),
+    'label' => array(
+      '#theme_wrappers' => array('container'),
+      '#attributes' => array('class' => array('membership-entity-label')),
+      'text' => array('#markup' => $label . ' '),
+    ),
+  );
+
+  $view = views_get_view('membership_entity_sub_members');
+  $tab = 'membership/' . $membership->mid . '/sub-members';
+
+  if ($count <= MEMBERSHIP_ENTITY_HIERARCHY_INLINE_MAX && $view && $view->access('embed')) {
+    $view->hide_admin_links = TRUE;
+    $view->override_url = current_path();
+    // The embed display hands back a block-style array: the markup is in
+    // 'content'.
+    $output = $view->execute_display('embed', array($membership->mid));
+    $element['list'] = array(
+      '#markup' => is_array($output) ? (isset($output['content']) ? $output['content'] : '') : $output,
+    );
+  }
+  elseif (backdrop_valid_path($tab)) {
+    $element['label']['button'] = array(
+      '#type' => 'link',
+      '#title' => t('View sub-members'),
+      '#href' => $tab,
+      '#attributes' => array('class' => array('button', 'membership-entity-sub-members-button')),
+    );
+  }
+
+  return $element;
 }
 
 /**
@@ -1149,9 +1254,11 @@ function membership_entity_hierarchy_membership_entity_uncoupled($membership, $o
 /**
  * Give a membership a term matching its parent's current one.
  *
- * The start and the length are copied, never the end date: MembershipEntityTerm
- * recalculates end from start plus term on every save, so an assigned end is
- * silently discarded. Same start and same length reproduces the same end.
+ * The start, length and modifiers are copied, never the end date:
+ * MembershipEntityTerm recalculates end from them on every save, so an assigned
+ * end is silently discarded. The recalculation follows the sub-member's own
+ * type's rules, though, so where it lands on a different day a day modifier is
+ * added to bring it onto the parent's end.
  *
  * @param MembershipEntity $membership
  *   The membership to give a term to. It must already be saved.
@@ -1178,12 +1285,54 @@ function membership_entity_hierarchy_copy_term_from_parent(MembershipEntity $mem
     'mid' => $membership->mid,
     'membership_entity_type' => $membership->type,
     'term' => $parent_term->term,
+    'modifiers' => empty($parent_term->modifiers) ? array() : array_values((array) $parent_term->modifiers),
     'start' => $parent_term->start,
     'status' => $parent_term->status,
   ));
   membership_entity_term_save($term);
 
+  // The end is worked out under the sub-member's own type's rules, which may
+  // differ from the parent's (end of day against day before), and the parent's
+  // stored end may predate a change to its own type. Either way the copy can
+  // land a day or more short, never counts as renewed, and every "Mark as
+  // renewed" adds another identical term. Close the gap with a day modifier.
+  if (!empty($parent_term->end) && !empty($term->end) && $term->end != $parent_term->end) {
+    $days = _membership_entity_hierarchy_end_gap_days($term, $parent_term);
+    if ($days) {
+      $term->modifiers[] = sprintf('%+d day%s', $days, abs($days) == 1 ? '' : 's');
+      membership_entity_term_save($term);
+    }
+  }
+
   return $term;
+}
+
+/**
+ * Whole local days from a copied term's end to its parent term's end.
+ *
+ * Counted on local calendar dates, so a clock change between the two does not
+ * turn a one day gap into 23 or 25 hours.
+ *
+ * @param object $term
+ *   The copied term, saved.
+ * @param object $parent_term
+ *   The parent's term it was copied from.
+ *
+ * @return int
+ *   Days to add to the copy (negative to take away); 0 when on the same day.
+ */
+function _membership_entity_hierarchy_end_gap_days($term, $parent_term) {
+  $settings = membership_entity_get_bundle_settings($term->membership_entity_type);
+  $local = membership_entity_term_local_timezone($settings, $term);
+
+  $got = new DateTime($term->end, new DateTimeZone(empty($term->timezone) ? 'UTC' : $term->timezone));
+  $want = new DateTime($parent_term->end, new DateTimeZone(empty($parent_term->timezone) ? 'UTC' : $parent_term->timezone));
+  $got->setTimezone($local);
+  $want->setTimezone($local);
+
+  $from = new DateTime($got->format('Y-m-d'));
+  $to = new DateTime($want->format('Y-m-d'));
+  return (int) $from->diff($to)->format('%r%a');
 }
 
 /**

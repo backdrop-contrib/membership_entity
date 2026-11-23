@@ -119,6 +119,8 @@ function membership_entity_postal_membership_entity_form_alter(&$form, &$form_st
 
   $form['membership']['new_account']['postal'] = array(
     '#type' => 'checkbox',
+    // Straight after the e-mail address it stands in for.
+    '#weight' => 51,
     '#title' => t('No e-mail address (postal member)'),
     '#description' => t('Generates an undeliverable address at %domain. They will not be able to sign in, which is intended: the account exists so they can hold a membership.', array(
       '%domain' => membership_entity_postal_mail_domain(),

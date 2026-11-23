@@ -440,3 +440,61 @@ class MembershipEntityTermAccessTestCase extends MembershipEntityTermWebTestCase
   }
 
 }
+
+/**
+ * Test a fixed renewal date in a timezone with summer time.
+ */
+class MembershipEntityTermFixedRenewalTestCase extends MembershipEntityTermWebTestCase {
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function setUp() {
+    parent::setUp();
+    // A year running to 31 March, ending at the close of that day, in London.
+    config_set('system.date', 'default_timezone', 'Europe/London');
+    // "Site" timezone handling reads the current user's timezone first where
+    // users may set their own (date_default_timezone()), and the test runs as
+    // an account in UTC.
+    config_set('system.date', 'user_configurable_timezones', FALSE);
+    $settings = config_get('membership_entity.settings', 'membership_entity_settings');
+    $settings['fixed_renewal_date'] = '31-3';
+    $settings['term_ends'] = 'day_before';
+    $settings['end_of_day'] = TRUE;
+    config_set('membership_entity.settings', 'membership_entity_settings', $settings);
+  }
+
+  /**
+   * Terms end on 31 March at 23:59:59 local time, in the right year.
+   *
+   * Starts are stored in UTC. 1 April in British summer time is 23:00 on 31
+   * March in UTC, which once put the end of a term starting on the renewal day
+   * a whole year early.
+   */
+  public function testFixedRenewalInSummerTime() {
+    $tests = array(
+      // label => array(term, UTC start, expected UTC end)
+      'starts on the renewal day' => array('1 year', '2026-03-31 23:00:00', '2027-03-31 22:59:59'),
+      'two years from the renewal day' => array('2 years', '2026-03-31 23:00:00', '2028-03-31 22:59:59'),
+      'starts in August' => array('1 year', '2026-08-14 23:00:00', '2027-03-31 22:59:59'),
+      'starts in January, covered to the next renewal' => array('1 year', '2026-01-10 00:00:00', '2026-03-31 22:59:59'),
+    );
+
+    $member = $this->backdropCreateUser(array('membership join'));
+    $membership = $this->createMembership(array('uid' => $member->uid));
+    foreach ($tests as $label => $values) {
+      $term = $this->createMembershipTerm(array(
+        'mid' => $membership->mid,
+        'term' => $values[0],
+        'start' => $values[1],
+        'timezone' => 'UTC',
+      ));
+      $this->assertEqual($term->end, $values[2], format_string('Fixed renewal end for a term that @label: expected @expected, got @got.', array(
+        '@label' => $label,
+        '@expected' => $values[2],
+        '@got' => $term->end,
+      )));
+    }
+  }
+
+}

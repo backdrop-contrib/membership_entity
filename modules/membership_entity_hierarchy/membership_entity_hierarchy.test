@@ -1,0 +1,302 @@
+<?php
+
+/**
+ * @file
+ * Tests for membership_entity_hierarchy.module.
+ */
+
+// The shared base classes. Backdrop only loads the test file named for each
+// class in the .tests.info file.
+require_once __DIR__ . '/../membership_entity_term/membership_entity_term.test';
+
+/**
+ * Defines a base class for testing sub-members.
+ */
+abstract class MembershipEntityHierarchyWebTestCase extends MembershipEntityTermWebTestCase {
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function setUp() {
+    $modules = func_get_args();
+    if (isset($modules[0]) && is_array($modules[0])) {
+      $modules = $modules[0];
+    }
+    parent::setUp(array_merge(array('membership_entity_hierarchy'), $modules));
+
+    // Any number of sub-members, renewed from a list. The sub-member
+    // permissions only exist once a type allows sub-members, so this comes
+    // before any user is created.
+    $settings = config_get('membership_entity.settings', 'membership_entity_settings');
+    $settings['max_children'] = FIELD_CARDINALITY_UNLIMITED;
+    $settings['child_terms'] = 'roster';
+    config_set('membership_entity.settings', 'membership_entity_settings', $settings);
+    backdrop_static_reset();
+    $this->checkPermissions(array(), TRUE);
+  }
+
+  /**
+   * Create a member account and a membership for it.
+   *
+   * @param int $pid
+   *   (optional) The parent membership id, 0 for a top-level membership.
+   * @param bool $term
+   *   (optional) Whether to give it a current one-year term.
+   *
+   * @return MembershipEntity
+   *   The membership; its account is in $membership->account.
+   */
+  protected function createMember($pid = 0, $term = FALSE) {
+    $account = $this->backdropCreateUser();
+    $membership = $this->createMembership(array(
+      'uid' => $account->uid,
+      'pid' => $pid,
+      'status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ));
+    if ($term) {
+      $this->createMembershipTerm(array(
+        'mid' => $membership->mid,
+        'term' => '1 year',
+        'start' => gmdate('Y-m-d H:i:s', REQUEST_TIME - 86400),
+        'timezone' => 'UTC',
+        'status' => MEMBERSHIP_ENTITY_ACTIVE,
+      ));
+    }
+    $membership->account = $account;
+    return $membership;
+  }
+
+}
+
+/**
+ * Test the sub-members list, button and tab on a membership.
+ */
+class MembershipEntityHierarchyPageTestCase extends MembershipEntityHierarchyWebTestCase {
+
+  /**
+   * A few sub-members are listed in place; many get a button to the tab.
+   */
+  public function testSubMembersListAndTab() {
+    $admin = $this->backdropCreateUser(array('administer memberships', 'administer membership terms'));
+    $parent = $this->createMember(0, TRUE);
+    $first = $this->createMember($parent->mid);
+    $second = $this->createMember($parent->mid);
+    $this->backdropLogin($admin);
+
+    $this->backdropGet('membership/' . $parent->mid);
+    $this->assertText('Sub-members: 2', 'The number of sub-members is shown.');
+    $this->assertRaw('view-display-id-embed', 'A few sub-members are listed in place.');
+    $this->assertLink($first->member_id, 0, 'A sub-member is listed.');
+    $this->assertNoLink('View sub-members', 'No button while they are listed in place.');
+
+    // The tab, and its search by member id and by username.
+    $this->backdropGet('membership/' . $parent->mid . '/sub-members');
+    $this->assertResponse(200, 'The Sub-members tab is there.');
+    $this->backdropGet('membership/' . $parent->mid . '/sub-members', array('query' => array('search' => $first->member_id)));
+    $this->assertLink($first->member_id, 0, 'Searching by member id finds the member.');
+    $this->assertNoLink($second->member_id, 'and not the other one.');
+    $this->backdropGet('membership/' . $parent->mid . '/sub-members', array('query' => array('search' => $second->account->name)));
+    $this->assertLink($second->member_id, 0, 'Searching by username finds the member.');
+    $this->assertNoLink($first->member_id, 'and not the other one.');
+
+    // Above the inline limit, a count and a button instead.
+    for ($i = 3; $i <= MEMBERSHIP_ENTITY_HIERARCHY_INLINE_MAX + 1; $i++) {
+      $this->createMember($parent->mid);
+    }
+    $this->backdropGet('membership/' . $parent->mid);
+    $this->assertText('Sub-members: ' . (MEMBERSHIP_ENTITY_HIERARCHY_INLINE_MAX + 1), 'The count is shown.');
+    $this->assertLink('View sub-members', 0, 'Many sub-members get a button to the tab.');
+    $this->assertNoRaw('view-display-id-embed', 'and are not listed in place.');
+
+    // No tab where there is nothing to list, nor for an unrelated user.
+    $this->backdropGet('membership/' . $first->mid . '/sub-members');
+    $this->assertResponse(403, 'A membership with no sub-members has no tab.');
+    $this->backdropLogin($this->backdropCreateUser());
+    $this->backdropGet('membership/' . $parent->mid . '/sub-members');
+    $this->assertResponse(403, 'An unrelated user cannot see the tab.');
+  }
+
+}
+
+/**
+ * Test the term a sub-member is given when marked as renewed.
+ */
+class MembershipEntityHierarchyCopyTermTestCase extends MembershipEntityHierarchyWebTestCase {
+
+  /**
+   * Count a membership's active terms and find the furthest end.
+   *
+   * @param int $mid
+   *   The membership id.
+   *
+   * @return array
+   *   The number of active terms, and the furthest end date.
+   */
+  protected function activeTerms($mid) {
+    $row = db_query('SELECT COUNT(*) AS n, MAX(end) AS furthest FROM {membership_entity_term} WHERE mid = :mid AND status = :active', array(
+      ':mid' => $mid,
+      ':active' => MEMBERSHIP_ENTITY_ACTIVE,
+    ))->fetchObject();
+    return array((int) $row->n, $row->furthest);
+  }
+
+  /**
+   * The copy ends where the parent's term ends, and is not repeated.
+   */
+  public function testCopyLandsOnParentEnd() {
+    $parent = $this->createMember(0);
+    $parent_term = $this->createMembershipTerm(array(
+      'mid' => $parent->mid,
+      'term' => '1 year',
+      'modifiers' => array('+1 month'),
+      'start' => gmdate('Y-m-d H:i:s', REQUEST_TIME - 86400),
+      'timezone' => 'UTC',
+      'status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ));
+    $child = $this->createMember($parent->mid);
+
+    // Marked three times, as happens when a roster is worked in sittings.
+    for ($i = 0; $i < 3; $i++) {
+      membership_entity_term_renew_sub_member_action(membership_entity_load($child->mid, TRUE));
+    }
+    list($count, $furthest) = $this->activeTerms($child->mid);
+    $this->assertEqual($count, 1, 'Marking as renewed repeatedly adds one term.');
+    $this->assertEqual($furthest, $parent_term->end, 'The copy carries the parent\'s modifiers and ends on the parent\'s end.');
+
+    // The parent's stored end a day later than its rules would now give, as
+    // after its type changes how terms end.
+    $later = gmdate('Y-m-d H:i:s', strtotime($parent_term->end . ' UTC') + 86400);
+    db_update('membership_entity_term')->fields(array('end' => $later))->condition('id', $parent_term->id)->execute();
+    entity_get_controller('membership_entity_term')->resetCache();
+    for ($i = 0; $i < 3; $i++) {
+      membership_entity_term_renew_sub_member_action(membership_entity_load($child->mid, TRUE));
+    }
+    list($count, $furthest) = $this->activeTerms($child->mid);
+    $this->assertEqual($count, 2, 'One more term, however many times it is marked.');
+    $this->assertEqual($furthest, $later, 'The new term reaches the parent\'s stored end.');
+  }
+
+}
+
+/**
+ * Test what an association secretary may do with existing accounts.
+ */
+class MembershipEntityHierarchySecretaryTestCase extends MembershipEntityHierarchyWebTestCase {
+  protected $secretary;
+  protected $parent;
+  protected $own;
+  protected $otherChild;
+  protected $outsider;
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function setUp() {
+    parent::setUp();
+    $this->secretary = $this->backdropCreateUser(array(
+      'membership view sub-memberships',
+      'membership edit sub-memberships',
+      'membership create sub-memberships',
+    ));
+    // Their association, with one member.
+    $this->parent = $this->createMembership(array('uid' => $this->secretary->uid, 'pid' => 0, 'status' => MEMBERSHIP_ENTITY_ACTIVE));
+    $this->createMembershipTerm(array(
+      'mid' => $this->parent->mid,
+      'term' => '1 year',
+      'start' => gmdate('Y-m-d H:i:s', REQUEST_TIME - 86400),
+      'timezone' => 'UTC',
+      'status' => MEMBERSHIP_ENTITY_ACTIVE,
+    ));
+    $this->own = $this->createMember($this->parent->mid);
+    // Another association, with one member.
+    $other = $this->createMember(0, TRUE);
+    $this->otherChild = $this->createMember($other->mid);
+    // Someone with an account and no membership.
+    $this->outsider = $this->backdropCreateUser();
+
+    $this->backdropLogin($this->secretary);
+  }
+
+  /**
+   * Fetch JSON from a path.
+   *
+   * @param string $path
+   *   The path.
+   * @param array $query
+   *   (optional) Query parameters.
+   *
+   * @return mixed
+   *   The decoded reply.
+   */
+  protected function getJson($path, array $query = array()) {
+    return backdrop_json_decode($this->backdropGet($path, array('query' => $query)));
+  }
+
+  /**
+   * The search and summary reach only the association's own people, plus an
+   * exact e-mail address, which shows a name only.
+   */
+  public function testScopedSearchAndSummary() {
+    $base = 'membership/' . $this->parent->mid;
+
+    $result = $this->getJson($base . '/member-autocomplete/' . $this->own->account->name);
+    $this->assertTrue(isset($result[$this->own->account->name]), 'Their own member is found.');
+    $result = $this->getJson($base . '/member-autocomplete/' . $this->otherChild->account->name);
+    $this->assertTrue(empty($result), 'Another association\'s member is not.');
+    $result = $this->getJson($base . '/member-autocomplete/' . $this->outsider->name);
+    $this->assertTrue(empty($result), 'Nor is anyone else.');
+
+    $this->backdropGet('membership/member-autocomplete/a');
+    $this->assertResponse(403, 'The site-wide search is refused.');
+
+    $summary = $this->getJson($base . '/member-summary', array('name' => $this->outsider->mail));
+    $this->assertTrue(strpos($summary['html'], 'has an account') !== FALSE, 'An exact e-mail address finds the account.');
+    $this->assertTrue(strpos($summary['html'], $this->outsider->mail) === FALSE, 'Its details are not shown.');
+    $summary = $this->getJson($base . '/member-summary', array('name' => $this->outsider->name));
+    $this->assertEqual($summary['html'], '', 'An outsider\'s username finds nothing.');
+    $summary = $this->getJson($base . '/member-summary', array('name' => $this->otherChild->account->mail));
+    $this->assertTrue(strpos($summary['html'], 'already belongs to another membership') !== FALSE, 'Another association\'s member is flagged.');
+  }
+
+  /**
+   * May add members but not view them: the search shows no one.
+   */
+  public function testCreateWithoutView() {
+    $adder = $this->backdropCreateUser(array('membership create sub-memberships'));
+    $association = $this->createMembership(array('uid' => $adder->uid, 'pid' => 0, 'status' => MEMBERSHIP_ENTITY_ACTIVE));
+    $member = $this->createMember($association->mid);
+    $this->backdropLogin($adder);
+
+    $result = $this->getJson('membership/' . $association->mid . '/member-autocomplete/' . $member->account->name);
+    $this->assertTrue(empty($result), 'Members they may not view are not listed.');
+    $summary = $this->getJson('membership/' . $association->mid . '/member-summary', array('name' => $member->account->name));
+    $this->assertEqual($summary['html'], '', 'Nor summarised by username.');
+  }
+
+  /**
+   * The add form applies the same rules on save.
+   */
+  public function testScopedAdd() {
+    $path = 'membership/' . $this->parent->mid . '/add-sub-member';
+    $this->backdropGet($path);
+    $this->assertText('Someone who already has an account', 'The secretary is offered an existing account.');
+
+    $cases = array(
+      'their own member' => array($this->own->account->name, 'is already a member here'),
+      'another association\'s member' => array($this->otherChild->account->mail, 'already belongs to another membership'),
+      'an outsider by username' => array($this->outsider->name, 'Could not find an account with the username'),
+    );
+    foreach ($cases as $label => $case) {
+      $this->backdropPost($path, array('member_source' => 'existing', 'uid[0][value]' => $case[0]), 'Save');
+      $this->assertText($case[1], format_string('Adding @label is refused.', array('@label' => $label)));
+    }
+
+    $this->backdropPost($path, array('member_source' => 'existing', 'uid[0][value]' => $this->outsider->mail), 'Save');
+    $added = db_query('SELECT mid FROM {membership_entity} WHERE uid = :uid AND pid = :pid', array(
+      ':uid' => $this->outsider->uid,
+      ':pid' => $this->parent->mid,
+    ))->fetchField();
+    $this->assertTrue($added, 'Someone named by exact e-mail address is added.');
+  }
+
+}

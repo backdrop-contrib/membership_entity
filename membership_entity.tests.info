@@ -21,3 +21,9 @@ name = Membership access
 description = Test membership access control.
 group = Membership Entity
 file = membership_entity.test
+
+[MembershipEntityMemberAccountTestCase]
+name = Membership member accounts
+description = Test creating and finding the member account from the membership form.
+group = Membership Entity
+file = membership_entity.test

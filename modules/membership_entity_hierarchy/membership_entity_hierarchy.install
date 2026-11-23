@@ -13,4 +13,85 @@
  */
 function membership_entity_hierarchy_uninstall() {
   config('views.view.membership_entity_renewals')->delete();
+  config('views.view.membership_entity_sub_members')->delete();
+}
+
+/**
+ * Install the Sub-members view.
+ *
+ * Shipped config is only copied at install time, and the membership page now
+ * embeds this view, so existing sites need it added.
+ */
+function membership_entity_hierarchy_update_1000() {
+  if (config('views.view.membership_entity_sub_members')->isNew()) {
+    config_install_default_config('membership_entity_hierarchy', 'views.view.membership_entity_sub_members');
+  }
+}
+
+/**
+ * Make the Sub-members search work where column collations differ.
+ *
+ * The tab's search used core's combine filter, which MySQL refuses when the
+ * member id and username columns have different collations, so it found
+ * nothing. Swaps it for the membership search filter, which also searches the
+ * name held on memberships without an account. Other filters a site has added
+ * are left alone.
+ */
+function membership_entity_hierarchy_update_1001() {
+  $config = config('views.view.membership_entity_sub_members');
+  if ($config->isNew()) {
+    return;
+  }
+
+  $display = $config->get('display');
+  foreach ($display as $display_id => $info) {
+    $options = &$display[$display_id]['display_options'];
+    if (empty($options['filters']['combine']) || $options['filters']['combine']['table'] != 'views') {
+      continue;
+    }
+
+    $old = $options['filters']['combine'];
+    $new = array(
+      'id' => 'membership_search',
+      'table' => 'views',
+      'field' => 'membership_search',
+      'operator' => 'contains',
+      'value' => '',
+      'exposed' => !empty($old['exposed']),
+      'expose' => array(
+        'operator_id' => 'membership_search_op',
+        'label' => 'Member id or name',
+        'operator' => 'membership_search_op',
+        'identifier' => isset($old['expose']['identifier']) ? $old['expose']['identifier'] : 'search',
+      ),
+      'fields' => $old['fields'] + array('member_name' => 'member_name'),
+    );
+
+    // Keep the filters in order, with the new one where the old one was.
+    $filters = array();
+    foreach ($options['filters'] as $key => $filter) {
+      if ($key == 'combine') {
+        $filters['membership_search'] = $new;
+      }
+      else {
+        $filters[$key] = $filter;
+      }
+    }
+    $options['filters'] = $filters;
+
+    // The search reads fields from the display, so member_name must be one.
+    if (isset($options['fields']) && !isset($options['fields']['member_name'])) {
+      $options['fields']['member_name'] = array(
+        'id' => 'member_name',
+        'table' => 'membership_entity',
+        'field' => 'member_name',
+        'label' => '',
+        'exclude' => TRUE,
+        'element_label_colon' => FALSE,
+      );
+    }
+    unset($options);
+  }
+
+  $config->set('display', $display)->save();
 }
