@@ -9,7 +9,7 @@
  * Field handler for when a membership's cover runs out.
  *
  * Shows the furthest end date of the membership's terms, or a marker when that
- * date falls in the next few calendar months: a mailing list sent to a printer
+ * date falls within the next number of days: a mailing list sent to a printer
  * needs to say which members get a renewal form in the envelope, and the date
  * alone leaves every printer to work that out. The furthest end, not the
  * current term's, for the reason given on loadCover().
@@ -23,7 +23,7 @@ class views_handler_field_membership_expiry extends views_handler_field_membersh
     $options = parent::option_definition();
     $options['custom_date_format'] = array('default' => 'd/m/Y');
     $options['output'] = array('default' => 'date');
-    $options['months'] = array('default' => 2);
+    $options['days'] = array('default' => 60);
     $options['marker'] = array('default' => 'E');
     $options['lifetime_text'] = array('default' => 'Lifetime');
     return $options;
@@ -55,13 +55,13 @@ class views_handler_field_membership_expiry extends views_handler_field_membersh
         'visible' => array(':input[name="options[output]"]' => array('value' => 'date')),
       ),
     );
-    $form['months'] = array(
+    $form['days'] = array(
       '#type' => 'number',
-      '#title' => t('Due for renewal: expiring in the next'),
-      '#field_suffix' => t('calendar months'),
+      '#title' => t('Due for renewal: expiring within'),
+      '#field_suffix' => t('days'),
       '#min' => 1,
-      '#default_value' => $this->options['months'],
-      '#description' => t('Counted from next month: 2 in July means expiring in August or September. The current month is left out, as its members were due on the previous mailing.'),
+      '#default_value' => $this->options['days'],
+      '#description' => t('Counted from when the view is run: 60 on 26 November means expiring by 25 January, including any still listed whose end date has already passed.'),
       '#states' => array(
         'visible' => array(':input[name="options[output]"]' => array('value' => 'marker')),
       ),
@@ -104,20 +104,19 @@ class views_handler_field_membership_expiry extends views_handler_field_membersh
   /**
    * Whether an end date falls in the renewal window.
    *
-   * Compares year and month together, so a December mailing catches the
-   * following January and February.
+   * Anything ending up to that many days from now counts, including ends that
+   * have already passed while the membership is still listed (the expiry cron
+   * has not reached it yet). Same window as the Expiry filter.
    *
    * @param string $end
-   *   A datetime string as held in the term table.
+   *   A datetime string as held in the term table (UTC).
    *
    * @return bool
-   *   TRUE when the date is in one of the next 'months' calendar months.
+   *   TRUE when the date is no more than 'days' days from now.
    */
   protected function isDue($end) {
-    $expiry = (int) format_date(strtotime($end), 'custom', 'Y', 'UTC') * 12 + (int) format_date(strtotime($end), 'custom', 'n', 'UTC');
-    $now = (int) format_date(REQUEST_TIME, 'custom', 'Y') * 12 + (int) format_date(REQUEST_TIME, 'custom', 'n');
-    $ahead = $expiry - $now;
-    return $ahead >= 1 && $ahead <= (int) $this->options['months'];
+    $days = (int) $this->options['days'];
+    return strtotime($end . ' UTC') <= REQUEST_TIME + ($days > 0 ? $days : 60) * 86400;
   }
 
 }

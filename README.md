@@ -72,6 +72,41 @@ usernames made for new members, set a pattern at Memberships > Settings and
 tick "Display on user registration form" on the user fields the membership
 form should ask for.
 
+## Expiry field in Views
+
+Membership Entity Term adds an **Expiry** field to views of memberships. The
+module ships no view that uses it: add it to your own, such as a mailing list
+exported as CSV (with Views Data Export) for a magazine printer.
+
+In the field's settings, **Show** chooses between:
+
+- **The expiry date**: the furthest end date of the membership's terms, in the
+  date format you choose. Lifetime memberships show a text you set
+  ("Lifetime").
+- **A marker when the membership is due for renewal**: a short text, "E" by
+  default, for memberships due for renewal, and blank for the rest. Label the
+  column as your printer expects (e.g. "isExpiring"): it tells them who gets
+  a renewal form in the envelope.
+
+For the marker, **Due for renewal: expiring within [60] days** sets the
+window, counted from when the view is run: 60 on 26 November means expiring
+by 25 January. Memberships still listed whose end date has passed are marked
+too.
+
+The number of days is stored in the view, so an administrator can change it
+in the Views UI. A view whose displays have their own field lists (a page
+and a CSV export, say) has a copy of the field on each: change both.
+
+There is also an **Expiry** filter, to list only the memberships expiring in
+the next number of days (60 by default; set your own in the filter), e.g. a
+"renewals due" page. It uses the same date as the field (lifetime
+memberships never match) and counts from when the view is run, the same
+window as the field's marker. Tick "Include memberships whose
+expiry has already passed" to keep those whose cover has run out. Expose it
+to let the person viewing change the number: the box starts with yours, and
+left empty it does not filter. On a view of users, add the filter through the
+user's membership relationship.
+
 ## Issues
 
 Bugs and feature requests should be reported in

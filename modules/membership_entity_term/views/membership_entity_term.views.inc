@@ -35,9 +35,13 @@ function membership_entity_term_views_data_alter(&$data) {
   // for mailing lists. One value per membership however many terms it holds.
   $data['membership_entity']['expiry'] = array(
     'title' => t('Expiry'),
-    'help' => t('The furthest end date of the membership\'s terms, or a marker when it falls in the next few months.'),
+    'help' => t('The furthest end date of the membership\'s terms, or a marker when it falls within the next number of days.'),
     'field' => array(
       'handler' => 'views_handler_field_membership_expiry',
+    ),
+    'filter' => array(
+      'handler' => 'views_handler_filter_membership_expiry',
+      'help' => t('Memberships whose furthest term end falls within a number of days or months from now.'),
     ),
   );
 

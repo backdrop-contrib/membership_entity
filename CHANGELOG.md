@@ -1,5 +1,18 @@
 # Changelog - Membership Entity
 
+## 1.x-1.3.1 (2026-11-26)
+
+Git tag: `1.x-1.3.1`.
+
+### Added
+- Views "Expiry" filter: memberships whose furthest term end is within the next number of days (default 60, set per filter; lifetime memberships never match), optionally including those already past. Can be exposed: the box starts with the configured number.
+
+### Changed
+- Views "Expiry" field, marker output: "Due for renewal" is now "expiring within N days" (default 60), counted from when the view is run, instead of the next few calendar months. The calendar-month window left out the current month, so a list run late in a month missed members expiring days later.
+
+### Documentation
+- README: new "Expiry field in Views" section (date or renewal marker, the days window, a copy of the field on each display with its own fields, the Expiry filter).
+
 ## 1.x-1.3.0 (2026-11-23)
 
 Git tag: `1.x-1.3.0`.
